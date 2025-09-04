@@ -1,0 +1,123 @@
+env = "development"
+
+[server]
+bind_address = "0.0.0.0:8080"
+public_url = "http://localhost:8080"
+
+[logging]
+filter = "photoframe_server=debug"
+
+# Optional global image size limits: any source image larger than these will be downscaled
+# (aspect preserved) before being cached as the base image. This helps improve performance
+# especially if the source photo is huge.
+[image_limits]
+max_width = 1600
+max_height = 1600
+
+# ------------------------------------------------------------------
+# Photo Frames (keyed tables)
+# ------------------------------------------------------------------
+
+[photoframes.living_room]
+upload_endpoint = "http://192.168.1.12:8080/upload"
+
+# Set the orientation to match how the physical frame is mounted.
+# This affects how images are selected from the image sources. Only images with
+# corresponding orientation will be used.
+orientation = "landscape" # or "portrait"
+
+# Set the physical panel dimensions in pixels. This affects the final dimensions
+# of the image before being sent to the panel. Note that even if the physical
+# frame is mounted in portrait mode, usually e-ink panels are still addressed in
+# landscape mode, so the width should be the larger dimension unless you're sure
+# this isn't the case.
+panel_width = 800
+panel_height = 480
+
+flip = false					    # true = flip the final image 180 degrees
+scaling = "cover"         # or "contain"
+output_format = "png"     # or "packed4bpp"
+upload_transport = "raw"  # or "multipart"
+dithering = "sierra_3"
+
+source_ids = ["local_favorites", "family_album"]
+
+# Runs once per hour at minute 0 between 7am and 11pm
+update_cron = "0 0 7-23 * * *"
+
+# Spectra E6 palette
+supported_colors = [
+	"#000000",
+	"#ffffff",
+	"#ff0000",
+	"#00ff00",
+	"#0000ff",
+	"#ffff00",
+]
+
+[photoframes.living_room.overscan]
+left = 8
+right = 8
+top = 16
+bottom = 12
+
+[photoframes.living_room.adjustments]
+brightness = 0.05
+contrast = 0.10
+saturation = 0.20
+sharpness = 0.15
+
+[photoframes.hallway]
+upload_endpoint = "http://192.168.1.43:8080/upload"
+orientation = "portrait"
+panel_width = 1448
+panel_height = 1072
+flip = true
+scaling = "contain"
+output_format = "packed4bpp" # device expects 4bpp packed stream
+upload_transport = "multipart"
+source_ids = ["local_favorites"]
+# Runs once per hour at minute 0 between 7am and 11pm
+update_cron = "0 0 7-23 * * *"
+dithering = "atkinson"
+# Spectra E6 palette
+supported_colors = [
+	"#000000",
+	"#ffffff",
+	"#ff0000",
+	"#00ff00",
+	"#0000ff",
+	"#ffff00",
+]
+
+[photoframes.hallway.overscan]
+left = 4
+right = 4
+top = 10
+bottom = 10
+
+[photoframes.hallway.adjustments]
+brightness = 0.00
+contrast = 0.05
+saturation = 0.10
+sharpness = 0.10
+
+# ------------------------------------------------------------------
+# Sources (keyed tables)
+# ------------------------------------------------------------------
+
+[sources.local_favorites]
+kind = "filesystem"
+
+[sources.local_favorites.filesystem]
+glob = "C:/photos/favorites/**/*.jpg"
+order = "random"
+
+[sources.family_album]
+kind = "immich"
+
+[sources.family_album.immich]
+base_url = "http://immich.local:2283"
+api_key = "YOUR_IMMICH_API_KEY"
+order = "random"
+filters = { personIds = ["ff59fc83-9f62-4455-8687-6caa4884fb0a", "8d34adbb-bde8-4158-a1b9-fe96375e5e82"] }
