@@ -1,10 +1,10 @@
-## photoframe-rs
+<img width="700" alt="photoframe-rs" src="banner.png" />
 
 Rust-based photo frame orchestration server for networked (e.g. Spectra E6 / multi‑color e‑ink) displays.
 
 The server periodically selects photos from configured sources, processes them, and pushes the result to networked e‑ink frames over HTTP.
 
-<img width="902" height="1032" alt="Configuration UI" src="https://github.com/user-attachments/assets/6a9694c9-4455-487e-a757-4120b76f0c55" />
+<img width="700" alt="Configuration UI" src="screenshot.png" />
 
 ---
 ### Quick start (server)
