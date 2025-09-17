@@ -1,6 +1,8 @@
 ## photoframe-rs
 
-Rust-based photo frame orchestration server for networked (e.g. Spectra E6 / multi‑color e‑ink) displays that periodically (or on demand) selects photos from configured sources, processes them (rotate → scale → pad → adjust → dither / palette reduce → encode), and pushes the result to networked e‑ink / multi‑color frames over HTTP.
+Rust-based photo frame orchestration server for networked (e.g. Spectra E6 / multi‑color e‑ink) displays.
+
+The server periodically selects photos from configured sources, processes them, and pushes the result to networked e‑ink frames over HTTP.
 
 ---
 ### Quick start (server)
