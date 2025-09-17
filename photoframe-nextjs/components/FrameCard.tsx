@@ -19,13 +19,14 @@ import {
   usePauseFrameMutation,
   useDummyFrameMutation,
   useClearFrameMutation,
-  FramePatchPayload,
   PreviewParams,
   FrameConfig,
   useFlipFrameMutation,
 } from "../hooks/http";
-import Tabs from "@mui/material/Tabs";
-import Tab from "@mui/material/Tab";
+import Accordion from "@mui/material/Accordion";
+import AccordionSummary from "@mui/material/AccordionSummary";
+import AccordionDetails from "@mui/material/AccordionDetails";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
@@ -38,7 +39,6 @@ import FileUploadIcon from "@mui/icons-material/FileUpload";
 import SkipNextIcon from "@mui/icons-material/SkipNext";
 import LayersClearIcon from "@mui/icons-material/LayersClear";
 import PauseCircleIcon from "@mui/icons-material/PauseCircle";
-import PlayCircleIcon from "@mui/icons-material/PlayCircle";
 import BuildCircleIcon from "@mui/icons-material/BuildCircle";
 import ScreenRotationIcon from "@mui/icons-material/ScreenRotation";
 import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
@@ -68,7 +68,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
   const [saturation, setSaturation] = useState(original.current.saturation);
   const [sharpness, setSharpness] = useState(original.current.sharpness);
   const [previewObjectUrl, setPreviewObjectUrl] = useState<string | null>(null);
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState(-1);
   const [paused, setPaused] = useState<boolean>(!!frame.paused);
   const [flip, setFlip] = useState<boolean>(!!(frame as any).flip);
   const [showIntermediate, setShowIntermediate] = useState<boolean>(false);
@@ -328,6 +328,14 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
     flip !== !!(frame as any).flip ||
     dummy !== !!(frame as any).dummy;
 
+  // Auto-refresh preview every minute to reflect external updates.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      requestImage(showIntermediate);
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [requestImage, showIntermediate]);
+
   return (
     <Card className="flex flex-col h-full">
       <CardHeader
@@ -339,12 +347,12 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
         }
       />
       <CardContent className="flex flex-col gap-3">
-        <div className="overflow-auto p-2 flex items-start justify-start">
+        <div className="overflow-auto p-2 flex items-start justify-center">
           {previewObjectUrl ? (
             <img
               src={previewObjectUrl}
               alt={frame.id}
-              className="max-w-none w-auto h-auto select-none"
+              className="md:max-w-none md:w-auto md:h-auto"
               draggable={false}
               onLoad={() => {
                 // revoke old URL after image uses it to free memory
@@ -356,7 +364,6 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
             </Typography>
           )}
         </div>
-        {/* Palette moved into Misc Settings tab */}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -377,330 +384,347 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
           }}
           className="flex flex-col gap-3"
         >
-          <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth">
-            <Tab label="Adjustments" />
-            <Tab label="Padding" />
-            <Tab label="Misc Settings" />
-          </Tabs>
-          {tab === 0 && (
-            <>
-              <Stack spacing={2} sx={{ px: 1 }}>
-                <div>
-                  <Typography variant="caption" gutterBottom>
-                    Brightness ({brightness})
-                  </Typography>
-                  <Slider
-                    size="small"
-                    value={brightness}
-                    onChange={(_, v) => setBrightness(v as number)}
-                    min={-50}
-                    max={50}
-                    step={5}
-                    marks
-                  />
-                </div>
-                <div>
-                  <Typography variant="caption" gutterBottom>
-                    Contrast ({contrast})
-                  </Typography>
-                  <Slider
-                    size="small"
-                    value={contrast}
-                    onChange={(_, v) => setContrast(v as number)}
-                    min={-50}
-                    max={50}
-                    step={5}
-                    marks
-                  />
-                </div>
-                <div>
-                  <Typography variant="caption" gutterBottom>
-                    Saturation ({saturation.toFixed(2)})
-                  </Typography>
-                  <Slider
-                    size="small"
-                    value={saturation}
-                    onChange={(_, v) => setSaturation(v as number)}
-                    min={-0.25}
-                    max={0.25}
-                    step={0.025}
-                    marks
-                  />
-                </div>
-                <div>
-                  <Typography variant="caption" gutterBottom>
-                    Sharpness {sharpness.toFixed(2)} (
-                    {sharpness < 0
-                      ? "soften"
-                      : sharpness > 0
-                        ? "sharpen"
-                        : "neutral"}
-                    )
-                  </Typography>
-                  <Slider
-                    size="small"
-                    value={sharpness}
-                    onChange={(_, v) => setSharpness(v as number)}
-                    min={-5}
-                    max={5}
-                    step={0.5}
-                    marks
-                  />
-                </div>
-                <Stack direction="row" spacing={1} alignItems="flex-end">
-                  <div className="flex flex-col">
+          {/* Replace tabs with accordions to hide advanced settings behind collapsible panels */}
+          <div className="space-y-2 pb-2">
+            <Accordion
+              expanded={tab === 0}
+              onChange={(_, expanded) => setTab(expanded ? 0 : -1)}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography>Adjustments</Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={2} sx={{ px: 1 }}>
+                  <div>
                     <Typography variant="caption" gutterBottom>
-                      Dithering
+                      Brightness ({brightness})
                     </Typography>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Select
-                        size="small"
-                        value={dithering}
-                        onChange={(e: any) =>
-                          setDithering(e.target.value as string)
-                        }
-                        sx={{ minWidth: 220 }}
-                      >
-                        {DITHER_OPTIONS.map((opt) => (
-                          <MenuItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                      <IconButton
-                        size="small"
-                        aria-label="previous dithering"
-                        onClick={() => cycleDithering(-1)}
-                      >
-                        <ChevronLeftIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        aria-label="next dithering"
-                        onClick={() => cycleDithering(1)}
-                      >
-                        <ChevronRightIcon fontSize="small" />
-                      </IconButton>
-                    </Stack>
+                    <Slider
+                      size="small"
+                      value={brightness}
+                      onChange={(_, v) => setBrightness(v as number)}
+                      min={-50}
+                      max={50}
+                      step={5}
+                      marks
+                    />
+                  </div>
+                  <div>
+                    <Typography variant="caption" gutterBottom>
+                      Contrast ({contrast})
+                    </Typography>
+                    <Slider
+                      size="small"
+                      value={contrast}
+                      onChange={(_, v) => setContrast(v as number)}
+                      min={-50}
+                      max={50}
+                      step={5}
+                      marks
+                    />
+                  </div>
+                  <div>
+                    <Typography variant="caption" gutterBottom>
+                      Saturation ({saturation.toFixed(2)})
+                    </Typography>
+                    <Slider
+                      size="small"
+                      value={saturation}
+                      onChange={(_, v) => setSaturation(v as number)}
+                      min={-0.25}
+                      max={0.25}
+                      step={0.025}
+                      marks
+                    />
+                  </div>
+                  <div>
+                    <Typography variant="caption" gutterBottom>
+                      Sharpness {sharpness.toFixed(2)} (
+                      {sharpness < 0
+                        ? "soften"
+                        : sharpness > 0
+                          ? "sharpen"
+                          : "neutral"}
+                      )
+                    </Typography>
+                    <Slider
+                      size="small"
+                      value={sharpness}
+                      onChange={(_, v) => setSharpness(v as number)}
+                      min={-5}
+                      max={5}
+                      step={0.5}
+                      marks
+                    />
+                  </div>
+                  <Stack direction="row" spacing={1} alignItems="flex-end">
+                    <div className="flex flex-col">
+                      <Typography variant="caption" gutterBottom>
+                        Dithering
+                      </Typography>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Select
+                          size="small"
+                          value={dithering}
+                          onChange={(e: any) =>
+                            setDithering(e.target.value as string)
+                          }
+                          sx={{ minWidth: 220 }}
+                        >
+                          {DITHER_OPTIONS.map((opt) => (
+                            <MenuItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                        <IconButton
+                          size="small"
+                          aria-label="previous dithering"
+                          onClick={() => cycleDithering(-1)}
+                        >
+                          <ChevronLeftIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          aria-label="next dithering"
+                          onClick={() => cycleDithering(1)}
+                        >
+                          <ChevronRightIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                    </div>
+                  </Stack>
+                  <div className="flex items-center gap-2">
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={showIntermediate}
+                          onChange={(_, c) => {
+                            setShowIntermediate(c);
+                            // fetch immediately for the chosen mode
+                            requestImage(c);
+                          }}
+                        />
+                      }
+                      label="Show original image"
+                    />
                   </div>
                 </Stack>
-                <div className="flex items-center gap-2 pb-4">
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        size="small"
-                        checked={showIntermediate}
-                        onChange={(_, c) => {
-                          setShowIntermediate(c);
-                          // fetch immediately for the chosen mode
-                          requestImage(c);
-                        }}
-                      />
-                    }
-                    label="Show original image"
-                  />
-                </div>
-              </Stack>
-            </>
-          )}
-          {tab === 1 && (
-            <Stack spacing={2} sx={{ px: 1 }}>
-              <div>
-                <Typography variant="caption" gutterBottom>
-                  Left ({left})
-                </Typography>
-                <Slider
-                  size="small"
-                  value={left}
-                  onChange={(_, v) => setLeft(v as number)}
-                  min={0}
-                  max={200}
-                  step={1}
-                />
-              </div>
-              <div>
-                <Typography variant="caption" gutterBottom>
-                  Right ({right})
-                </Typography>
-                <Slider
-                  size="small"
-                  value={right}
-                  onChange={(_, v) => setRight(v as number)}
-                  min={0}
-                  max={200}
-                  step={1}
-                />
-              </div>
-              <div>
-                <Typography variant="caption" gutterBottom>
-                  Top ({top})
-                </Typography>
-                <Slider
-                  size="small"
-                  value={top}
-                  onChange={(_, v) => setTop(v as number)}
-                  min={0}
-                  max={200}
-                  step={1}
-                />
-              </div>
-              <div>
-                <Typography variant="caption" gutterBottom>
-                  Bottom ({bottom})
-                </Typography>
-                <Slider
-                  size="small"
-                  value={bottom}
-                  onChange={(_, v) => setBottom(v as number)}
-                  min={0}
-                  max={200}
-                  step={1}
-                />
-              </div>
-            </Stack>
-          )}
-          {tab === 2 && (
-            <Stack spacing={2} sx={{ px: 1 }}>
-              <div className="flex flex-col gap-1">
-                <FormControlLabel
-                  control={
-                    <Checkbox
+              </AccordionDetails>
+            </Accordion>
+            <Accordion
+              expanded={tab === 1}
+              onChange={(_, expanded) => setTab(expanded ? 1 : -1)}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography>Padding</Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={2} sx={{ px: 1 }}>
+                  <div>
+                    <Typography variant="caption" gutterBottom>
+                      Left ({left})
+                    </Typography>
+                    <Slider
                       size="small"
-                      checked={flip}
-                      onChange={(_, c) => {
-                        setFlip(c);
-                        flipMutation.mutate(c);
-                      }}
+                      value={left}
+                      onChange={(_, v) => setLeft(v as number)}
+                      min={0}
+                      max={200}
+                      step={1}
                     />
-                  }
-                  label={
-                    flipMutation.isPending ? (
-                      "Updating…"
-                    ) : (
-                      <span className="flex items-center gap-1">
-                        <ScreenRotationIcon fontSize="small" /> Flip 180°
-                      </span>
-                    )
-                  }
-                />
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      size="small"
-                      checked={paused}
-                      onChange={(_, c) => {
-                        setPaused(c);
-                        pauseMutation.mutate(c);
-                      }}
-                    />
-                  }
-                  label={
-                    pauseMutation.isPending ? (
-                      "Updating…"
-                    ) : (
-                      <span className="flex items-center gap-1">
-                        {paused ? (
-                          <PlayCircleIcon fontSize="small" />
-                        ) : (
-                          <PauseCircleIcon fontSize="small" />
-                        )}
-                        {paused ? "Resume schedule" : "Pause schedule"}
-                      </span>
-                    )
-                  }
-                />
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      size="small"
-                      checked={dummy}
-                      onChange={(_, c) => {
-                        setDummy(c);
-                        dummyMutation.mutate(c);
-                      }}
-                    />
-                  }
-                  label={
-                    dummyMutation.isPending ? (
-                      "Updating…"
-                    ) : (
-                      <span className="flex items-center gap-1">
-                        <BuildCircleIcon fontSize="small" /> Dummy mode
-                      </span>
-                    )
-                  }
-                />
-              </div>
-              <input
-                ref={fileInputRef}
-                hidden
-                type="file"
-                accept="image/*"
-                onChange={onUpload}
-              />
-              <Stack
-                direction="column"
-                spacing={1}
-                alignItems="flex-start"
-                flexWrap="wrap"
-              >
-                <Button
-                  size="small"
-                  startIcon={<LayersClearIcon fontSize="small" />}
-                  onClick={() =>
-                    clearMutation.mutate(undefined, {
-                      onSuccess: () => requestImage(showIntermediate),
-                    })
-                  }
-                  disabled={clearMutation.isPending}
-                >
-                  Clear screen
-                </Button>
-                <Button
-                  size="small"
-                  startIcon={<FileUploadIcon fontSize="small" />}
-                  onClick={triggerUploadDialog}
-                  disabled={uploadMutation.isPending}
-                >
-                  Upload
-                </Button>
-                {uploadMutation.isPending && (
-                  <LinearProgress
-                    sx={{ width: 100, height: 4, borderRadius: 1 }}
-                  />
-                )}
-              </Stack>
-              {paletteQuery.data ? (
-                <div className="p-2">
-                  <Typography variant="caption" gutterBottom>
-                    Resolved palette
-                  </Typography>
-                  <div className="flex flex-wrap gap-6 mt-1">
-                    {paletteQuery.data.palette.map((p, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
-                        <div
-                          className="w-6 h-6 rounded border"
-                          style={{
-                            backgroundColor:
-                              p.hex !== "invalid" ? p.hex : "#000000",
-                          }}
-                          title={p.hex}
-                        />
-                        <Typography variant="caption">
-                          {p.input} → {p.hex} ({p.rgb[0]},{p.rgb[1]},{p.rgb[2]})
-                        </Typography>
-                      </div>
-                    ))}
                   </div>
-                </div>
-              ) : (
-                <Typography variant="caption" color="text.secondary">
-                  Loading palette…
-                </Typography>
-              )}
-            </Stack>
-          )}
-          <Stack direction="row" spacing={2}>
+                  <div>
+                    <Typography variant="caption" gutterBottom>
+                      Right ({right})
+                    </Typography>
+                    <Slider
+                      size="small"
+                      value={right}
+                      onChange={(_, v) => setRight(v as number)}
+                      min={0}
+                      max={200}
+                      step={1}
+                    />
+                  </div>
+                  <div>
+                    <Typography variant="caption" gutterBottom>
+                      Top ({top})
+                    </Typography>
+                    <Slider
+                      size="small"
+                      value={top}
+                      onChange={(_, v) => setTop(v as number)}
+                      min={0}
+                      max={200}
+                      step={1}
+                    />
+                  </div>
+                  <div>
+                    <Typography variant="caption" gutterBottom>
+                      Bottom ({bottom})
+                    </Typography>
+                    <Slider
+                      size="small"
+                      value={bottom}
+                      onChange={(_, v) => setBottom(v as number)}
+                      min={0}
+                      max={200}
+                      step={1}
+                    />
+                  </div>
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+            <Accordion
+              expanded={tab === 2}
+              onChange={(_, expanded) => setTab(expanded ? 2 : -1)}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography>Misc Settings</Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={2} sx={{ px: 1 }}>
+                  <div className="flex flex-col gap-1">
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={flip}
+                          onChange={(_, c) => {
+                            setFlip(c);
+                            flipMutation.mutate(c);
+                          }}
+                        />
+                      }
+                      label={
+                        flipMutation.isPending ? (
+                          "Updating…"
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <ScreenRotationIcon fontSize="small" /> Flip 180°
+                          </span>
+                        )
+                      }
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={paused}
+                          onChange={(_, c) => {
+                            setPaused(c);
+                            pauseMutation.mutate(c);
+                          }}
+                        />
+                      }
+                      label={
+                        pauseMutation.isPending ? (
+                          "Updating…"
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <PauseCircleIcon fontSize="small" />
+                            Pause schedule
+                          </span>
+                        )
+                      }
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={dummy}
+                          onChange={(_, c) => {
+                            setDummy(c);
+                            dummyMutation.mutate(c);
+                          }}
+                        />
+                      }
+                      label={
+                        dummyMutation.isPending ? (
+                          "Updating…"
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <BuildCircleIcon fontSize="small" /> Dummy mode
+                          </span>
+                        )
+                      }
+                    />
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    hidden
+                    type="file"
+                    accept="image/*"
+                    onChange={onUpload}
+                  />
+                  <Stack
+                    direction="column"
+                    spacing={1}
+                    alignItems="flex-start"
+                    flexWrap="wrap"
+                  >
+                    <Button
+                      size="small"
+                      startIcon={<LayersClearIcon fontSize="small" />}
+                      onClick={() =>
+                        clearMutation.mutate(undefined, {
+                          onSuccess: () => requestImage(showIntermediate),
+                        })
+                      }
+                      disabled={clearMutation.isPending}
+                    >
+                      Clear screen
+                    </Button>
+                    <Button
+                      size="small"
+                      startIcon={<FileUploadIcon fontSize="small" />}
+                      onClick={triggerUploadDialog}
+                      disabled={uploadMutation.isPending}
+                    >
+                      Upload image (auto pause schedule)
+                    </Button>
+                    {uploadMutation.isPending && (
+                      <LinearProgress
+                        sx={{ width: 100, height: 4, borderRadius: 1 }}
+                      />
+                    )}
+                  </Stack>
+                  {paletteQuery.data ? (
+                    <div className="p-2">
+                      <Typography variant="caption" gutterBottom>
+                        Resolved palette
+                      </Typography>
+                      <div className="flex flex-wrap gap-6 mt-1">
+                        {paletteQuery.data.palette.map((p, idx) => (
+                          <div key={idx} className="flex items-center gap-2">
+                            <div
+                              className="w-6 h-6 rounded border"
+                              style={{
+                                backgroundColor:
+                                  p.hex !== "invalid" ? p.hex : "#000000",
+                              }}
+                              title={p.hex}
+                            />
+                            <Typography variant="caption">
+                              {p.input} → {p.hex} ({p.rgb[0]},{p.rgb[1]},
+                              {p.rgb[2]})
+                            </Typography>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">
+                      Loading palette…
+                    </Typography>
+                  )}
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+          </div>
+          <Stack direction="row" gap={2} flexWrap={"wrap"}>
             <Button
               size="small"
               type="button"
