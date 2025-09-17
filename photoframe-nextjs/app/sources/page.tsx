@@ -6,7 +6,11 @@ import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Chip from "@mui/material/Chip";
 import Typography from "@mui/material/Typography";
-import { useConfigQuery, useSetImmichCredentials, useSetImmichFilters } from "../../hooks/http";
+import {
+  useConfigQuery,
+  useSetImmichCredentials,
+  useSetImmichFilters,
+} from "../../hooks/http";
 import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 
@@ -26,7 +30,9 @@ export default function SourcesPage() {
             <Paper className="p-3">
               <Stack spacing={1}>
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="h6" className="font-medium">{id}</Typography>
+                  <Typography variant="h6" className="font-medium">
+                    {id}
+                  </Typography>
                   <Chip size="small" label={src.kind} />
                 </Stack>
                 {src.kind === "immich" && (
@@ -34,8 +40,12 @@ export default function SourcesPage() {
                 )}
                 {src.kind === "filesystem" && (
                   <div className="text-sm opacity-80">
-                    <p>Glob: <code>{src.filesystem?.glob || "(none)"}</code></p>
-                    <p>Order: <code>{src.filesystem?.order || "random"}</code></p>
+                    <p>
+                      Glob: <code>{src.filesystem?.glob || "(none)"}</code>
+                    </p>
+                    <p>
+                      Order: <code>{src.filesystem?.order || "random"}</code>
+                    </p>
                   </div>
                 )}
               </Stack>
@@ -47,21 +57,31 @@ export default function SourcesPage() {
   );
 }
 
-function ImmichInlineOnboard({ apiBase, sourceId }: { apiBase: string; sourceId: string }) {
+function ImmichInlineOnboard({
+  apiBase,
+  sourceId,
+}: {
+  apiBase: string;
+  sourceId: string;
+}) {
   const creds = useSetImmichCredentials(apiBase, sourceId);
   const filtersMut = useSetImmichFilters(apiBase, sourceId);
   const { data } = useConfigQuery(apiBase);
   const current = data?.sources?.[sourceId]?.immich;
   const [baseUrl, setBaseUrl] = React.useState("");
   const [apiKey, setApiKey] = React.useState("");
-  const [filtersText, setFiltersText] = React.useState("{\n  \"albumIds\": [],\n  \"personIds\": []\n}");
+  const [filtersText, setFiltersText] = React.useState(
+    '{\n  "albumIds": [],\n  "personIds": []\n}',
+  );
   const [filtersError, setFiltersError] = React.useState<string | null>(null);
 
   // Prefill from config when it loads/changes
-  React.useEffect(()=>{
+  React.useEffect(() => {
     if (current) {
-      if (current.base_url && current.base_url !== baseUrl) setBaseUrl(current.base_url);
-      if (current.api_key && current.api_key !== apiKey) setApiKey(current.api_key);
+      if (current.base_url && current.base_url !== baseUrl)
+        setBaseUrl(current.base_url);
+      if (current.api_key && current.api_key !== apiKey)
+        setApiKey(current.api_key);
       if (current.filters) {
         try {
           const pretty = JSON.stringify(current.filters, null, 2);
@@ -74,14 +94,14 @@ function ImmichInlineOnboard({ apiBase, sourceId }: { apiBase: string; sourceId:
   const validate = React.useCallback((txt: string) => {
     try {
       const parsed = JSON.parse(txt);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         setFiltersError(null);
         return parsed as Record<string, unknown>;
       }
-      setFiltersError('Must be a JSON object');
+      setFiltersError("Must be a JSON object");
       return null;
     } catch (e) {
-      setFiltersError('Invalid JSON');
+      setFiltersError("Invalid JSON");
       return null;
     }
   }, []);
@@ -95,25 +115,62 @@ function ImmichInlineOnboard({ apiBase, sourceId }: { apiBase: string; sourceId:
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
-        <TextField size="small" label="Immich Base URL" value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} className="flex-1" />
-        <TextField size="small" label="API Key" value={apiKey} onChange={e=>setApiKey(e.target.value)} className="flex-1" />
-        <Button size="small" variant="contained" onClick={()=>creds.mutate({ base_url: baseUrl, api_key: apiKey })} disabled={!baseUrl || !apiKey || creds.isPending}>Save</Button>
+        <TextField
+          size="small"
+          label="Immich Base URL"
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          className="flex-1"
+        />
+        <TextField
+          size="small"
+          label="API Key"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          className="flex-1"
+        />
+        <Button
+          size="small"
+          variant="contained"
+          onClick={() => creds.mutate({ base_url: baseUrl, api_key: apiKey })}
+          disabled={!baseUrl || !apiKey || creds.isPending}
+        >
+          Save
+        </Button>
       </div>
       <div className="flex flex-col gap-2">
-        <Typography variant="body2" className="opacity-70">Search Filters (JSON for Immich /api/search/asset). type=["IMAGE"] is always enforced server-side.</Typography>
+        <Typography variant="body2" className="opacity-70">
+          Search Filters (JSON for Immich /api/search/asset). type=["IMAGE"] is
+          always enforced server-side.
+        </Typography>
         <TextField
           size="small"
           label="Filters JSON"
           value={filtersText}
-          onChange={e=>{ setFiltersText(e.target.value); validate(e.target.value); }}
-          multiline minRows={3}
+          onChange={(e) => {
+            setFiltersText(e.target.value);
+            validate(e.target.value);
+          }}
+          multiline
+          minRows={3}
           error={!!filtersError}
-          helperText={filtersError || 'albumIds, personIds, dateAfter, etc.'}
+          helperText={filtersError || "albumIds, personIds, dateAfter, etc."}
         />
         <div className="flex gap-2">
-          <Button size="small" variant="outlined" onClick={onSaveFilters} disabled={!!filtersError || filtersMut.isPending}>Save Filters</Button>
-          {filtersMut.isSuccess && <span className="text-green-600 text-xs">Saved.</span>}
-          {filtersMut.isError && <span className="text-red-600 text-xs">Error saving.</span>}
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={onSaveFilters}
+            disabled={!!filtersError || filtersMut.isPending}
+          >
+            Save Filters
+          </Button>
+          {filtersMut.isSuccess && (
+            <span className="text-green-600 text-xs">Saved.</span>
+          )}
+          {filtersMut.isError && (
+            <span className="text-red-600 text-xs">Error saving.</span>
+          )}
         </div>
       </div>
     </div>

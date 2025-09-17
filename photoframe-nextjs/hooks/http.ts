@@ -27,8 +27,11 @@ export interface ConfigResponse {
 }
 
 export type SourceKind = "filesystem" | "immich" | string;
-export type OrderKind = 'random' | 'sequential';
-export interface FilesystemSourceCfg { glob?: string; order?: OrderKind }
+export type OrderKind = "random" | "sequential";
+export interface FilesystemSourceCfg {
+  glob?: string;
+  order?: OrderKind;
+}
 export interface ImmichSourceCfg {
   base_url?: string;
   api_key?: string;
@@ -46,13 +49,16 @@ export interface SourceConfig {
 export function useSetImmichCredentials(apiBase: string, sourceId: string) {
   return useMutation<void, Error, { base_url: string; api_key: string }>({
     mutationFn: async (payload) => {
-      const res = await fetch(`${apiBase}/sources/${sourceId}/immich/credentials`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error('Set Immich creds failed');
-    }
+      const res = await fetch(
+        `${apiBase}/sources/${sourceId}/immich/credentials`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (!res.ok) throw new Error("Set Immich creds failed");
+    },
   });
 }
 
@@ -62,15 +68,15 @@ export function useSetImmichFilters(apiBase: string, sourceId: string) {
   return useMutation<void, Error, { filters: Record<string, unknown> }>({
     mutationFn: async (payload) => {
       const res = await fetch(`${apiBase}/sources/${sourceId}/immich/filters`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error('Set Immich filters failed');
+      if (!res.ok) throw new Error("Set Immich filters failed");
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['config', apiBase] });
-    }
+      qc.invalidateQueries({ queryKey: ["config", apiBase] });
+    },
   });
 }
 
@@ -204,7 +210,9 @@ export function useNextFrameMutation(
 ) {
   return useMutation<void, Error, void>({
     mutationFn: async () => {
-      const res = await fetch(`${apiBase}/frames/${frameId}/next`, { method: "POST" });
+      const res = await fetch(`${apiBase}/frames/${frameId}/next`, {
+        method: "POST",
+      });
       if (!res.ok) throw new Error("Next failed");
     },
     onSuccess: () => opts?.onSuccess?.(),
@@ -224,9 +232,9 @@ export function useUploadFrameMutation(apiBase: string, frameId: string) {
       if (!res.ok) throw new Error("Upload failed");
     },
     onSuccess: () => {
-  // Force a refetch of preview immediately after upload
-  previewMutation.mutate(undefined);
-    }
+      // Force a refetch of preview immediately after upload
+      previewMutation.mutate(undefined);
+    },
   });
 }
 
@@ -245,13 +253,23 @@ export function usePreviewFrameMutation(apiBase: string, frameId: string) {
   });
 }
 
-export interface FramePaletteEntry { input: string; hex: string; rgb: [number, number, number] }
-export interface FramePaletteResponse { frame_id: string; palette: FramePaletteEntry[] }
+export interface FramePaletteEntry {
+  input: string;
+  hex: string;
+  rgb: [number, number, number];
+}
+export interface FramePaletteResponse {
+  frame_id: string;
+  palette: FramePaletteEntry[];
+}
 
 export function useFramePaletteQuery(apiBase: string, frameId: string) {
   return useQuery<FramePaletteResponse>({
     queryKey: ["palette", apiBase, frameId],
-    queryFn: () => defaultFetch<FramePaletteResponse>(`${apiBase}/frames/${encodeURIComponent(frameId)}/palette`),
+    queryFn: () =>
+      defaultFetch<FramePaletteResponse>(
+        `${apiBase}/frames/${encodeURIComponent(frameId)}/palette`,
+      ),
     refetchInterval: 30_000,
   });
 }
@@ -260,8 +278,10 @@ export function useFramePaletteQuery(apiBase: string, frameId: string) {
 export function useClearFrameMutation(apiBase: string, frameId: string) {
   return useMutation<void, Error, void>({
     mutationFn: async () => {
-      const res = await fetch(`${apiBase}/frames/${frameId}/clear`, { method: 'POST' });
-      if (!res.ok) throw new Error('Clear failed');
+      const res = await fetch(`${apiBase}/frames/${frameId}/clear`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("Clear failed");
     },
   });
 }

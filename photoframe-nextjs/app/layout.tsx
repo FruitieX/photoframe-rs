@@ -49,14 +49,21 @@ function Shell({ children }: { children: ReactNode }) {
         sx={{
           width: drawerWidth,
           flexShrink: 0,
-          [`& .MuiDrawer-paper`]: { width: drawerWidth, boxSizing: "border-box" },
+          [`& .MuiDrawer-paper`]: {
+            width: drawerWidth,
+            boxSizing: "border-box",
+          },
         }}
       >
         <Toolbar />
         <Box sx={{ overflow: "auto" }}>
           <List>
             <ListItem disablePadding>
-              <ListItemButton component={Link} href="/frames" selected={pathname?.startsWith("/frames") || pathname === "/"}>
+              <ListItemButton
+                component={Link}
+                href="/frames"
+                selected={pathname?.startsWith("/frames") || pathname === "/"}
+              >
                 <ListItemIcon>
                   <PhotoIcon />
                 </ListItemIcon>
@@ -64,7 +71,11 @@ function Shell({ children }: { children: ReactNode }) {
               </ListItemButton>
             </ListItem>
             <ListItem disablePadding>
-              <ListItemButton component={Link} href="/sources" selected={pathname?.startsWith("/sources") === true}>
+              <ListItemButton
+                component={Link}
+                href="/sources"
+                selected={pathname?.startsWith("/sources") === true}
+              >
                 <ListItemIcon>
                   <StorageIcon />
                 </ListItemIcon>

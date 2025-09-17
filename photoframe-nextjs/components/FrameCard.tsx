@@ -88,8 +88,63 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
 
   const previewMutation = usePreviewFrameMutation(apiBase, frame.id);
 
-  const requestImage = useCallback((useIntermediate: boolean) => {
-    const payload: PreviewParams = {
+  const requestImage = useCallback(
+    (useIntermediate: boolean) => {
+      const payload: PreviewParams = {
+        dithering,
+        brightness,
+        contrast,
+        saturation,
+        sharpness,
+        left,
+        right,
+        top,
+        bottom,
+        paused,
+      };
+      const id = ++requestIdRef.current;
+      setLoadingMode("preview");
+      if (useIntermediate) {
+        // fetch intermediate PNG directly
+        fetch(`${apiBase}/frames/${encodeURIComponent(frame.id)}/intermediate`)
+          .then((res) => {
+            if (!res.ok) throw new Error("Intermediate missing");
+            return res.blob();
+          })
+          .then((blob) => {
+            if (id !== requestIdRef.current) return;
+            if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+            const url = URL.createObjectURL(blob);
+            setPreviewObjectUrl(url);
+            setLoadingMode(null);
+          })
+          .catch(() => {
+            // fallback to computed preview
+            previewMutation.mutate(payload, {
+              onSuccess: (blob: Blob) => {
+                if (id !== requestIdRef.current) return;
+                if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+                const url = URL.createObjectURL(blob);
+                setPreviewObjectUrl(url);
+                lastPreviewParams.current = payload;
+                setLoadingMode(null);
+              },
+            } as any);
+          });
+      } else {
+        previewMutation.mutate(payload, {
+          onSuccess: (blob: Blob) => {
+            if (id !== requestIdRef.current) return; // stale
+            if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+            const url = URL.createObjectURL(blob);
+            setPreviewObjectUrl(url);
+            lastPreviewParams.current = payload;
+            setLoadingMode(null);
+          },
+        } as any);
+      }
+    },
+    [
       dithering,
       brightness,
       contrast,
@@ -99,65 +154,13 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
       right,
       top,
       bottom,
-  paused,
-    };
-    const id = ++requestIdRef.current;
-    setLoadingMode("preview");
-    if (useIntermediate) {
-      // fetch intermediate PNG directly
-      fetch(`${apiBase}/frames/${encodeURIComponent(frame.id)}/intermediate`)
-        .then((res) => {
-          if (!res.ok) throw new Error("Intermediate missing");
-          return res.blob();
-        })
-        .then((blob) => {
-          if (id !== requestIdRef.current) return;
-          if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
-          const url = URL.createObjectURL(blob);
-          setPreviewObjectUrl(url);
-          setLoadingMode(null);
-        })
-        .catch(() => {
-          // fallback to computed preview
-          previewMutation.mutate(payload, {
-            onSuccess: (blob: Blob) => {
-              if (id !== requestIdRef.current) return;
-              if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
-              const url = URL.createObjectURL(blob);
-              setPreviewObjectUrl(url);
-              lastPreviewParams.current = payload;
-              setLoadingMode(null);
-            },
-          } as any);
-        });
-    } else {
-      previewMutation.mutate(payload, {
-        onSuccess: (blob: Blob) => {
-          if (id !== requestIdRef.current) return; // stale
-          if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
-          const url = URL.createObjectURL(blob);
-          setPreviewObjectUrl(url);
-          lastPreviewParams.current = payload;
-          setLoadingMode(null);
-        },
-      } as any);
-    }
-  }, [
-    dithering,
-    brightness,
-    contrast,
-    saturation,
-    sharpness,
-    left,
-    right,
-    top,
-    bottom,
-    paused,
-    apiBase,
-    frame.id,
-    previewMutation,
-    previewObjectUrl,
-  ]);
+      paused,
+      apiBase,
+      frame.id,
+      previewMutation,
+      previewObjectUrl,
+    ],
+  );
 
   const triggerMutation = useTriggerFrameMutation(apiBase, frame.id, {
     onSuccess: () => requestImage(showIntermediate),
@@ -174,7 +177,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
     { value: "ordered_bayer_2", label: "Ordered Bayer 2×2" },
     { value: "ordered_bayer_4", label: "Ordered Bayer 4×4" },
     { value: "ordered_bayer_8", label: "Ordered Bayer 8×8" },
-  { value: "ordered_blue_256", label: "Blue noise 256×256" },
+    { value: "ordered_blue_256", label: "Blue noise 256×256" },
     { value: "stark_8", label: "Stark 8×8" },
     { value: "yliluoma1_8", label: "Yliluoma 1 (8×8)" },
     { value: "yliluoma2_8", label: "Yliluoma 2 (8×8)" },
@@ -195,7 +198,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
       DITHER_OPTIONS.findIndex((o) => o.value === dithering),
     );
     const len = DITHER_OPTIONS.length;
-    const next = ((idx + delta) % len + len) % len; // wrap-around
+    const next = (((idx + delta) % len) + len) % len; // wrap-around
     setDithering(DITHER_OPTIONS[next].value);
   };
 
@@ -208,7 +211,9 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
       onSuccess: () => {
         setPaused(true);
         // Persist paused state immediately to avoid cron overwriting the uploaded base
-        try { pauseMutation.mutate(true); } catch {}
+        try {
+          pauseMutation.mutate(true);
+        } catch {}
         // refresh the visible image for current mode to avoid stale content
         requestImage(showIntermediate);
       },
@@ -254,10 +259,10 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
       bottom,
       paused,
     };
-  // When showing the Original (intermediate) image, avoid auto-calling /preview.
-  if (showIntermediate) return;
+    // When showing the Original (intermediate) image, avoid auto-calling /preview.
+    if (showIntermediate) return;
     if (!paramsChanged(payload, lastPreviewParams.current)) return;
-  requestImage(false);
+    requestImage(false);
   }, [
     dithering,
     brightness,
@@ -269,7 +274,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
     top,
     bottom,
     paused,
-  showIntermediate,
+    showIntermediate,
     requestImage,
   ]);
 
@@ -285,10 +290,10 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
       right,
       top,
       bottom,
-  paused,
+      paused,
     ],
-  500,
-  { leading: true, maxWait: 500 },
+    500,
+    { leading: true, maxWait: 500 },
   );
 
   function onCancel() {
@@ -301,9 +306,9 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
     setRight(frame.overscan?.right ?? 0);
     setTop(frame.overscan?.top ?? 0);
     setBottom(frame.overscan?.bottom ?? 0);
-  setPaused(!!frame.paused);
-  setFlip(!!(frame as any).flip);
-  setDummy(!!(frame as any).dummy);
+    setPaused(!!frame.paused);
+    setFlip(!!(frame as any).flip);
+    setDummy(!!(frame as any).dummy);
     // No automatic preview if values already match last; queuePreview handles comparison.
     queuePreview();
   }
@@ -317,10 +322,10 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
     left !== (frame.overscan?.left ?? 0) ||
     right !== (frame.overscan?.right ?? 0) ||
     top !== (frame.overscan?.top ?? 0) ||
-  bottom !== (frame.overscan?.bottom ?? 0) ||
-  paused !== !!frame.paused ||
-  flip !== !!(frame as any).flip ||
-  dummy !== !!(frame as any).dummy;
+    bottom !== (frame.overscan?.bottom ?? 0) ||
+    paused !== !!frame.paused ||
+    flip !== !!(frame as any).flip ||
+    dummy !== !!(frame as any).dummy;
 
   return (
     <Card className="flex flex-col h-full">
@@ -432,7 +437,9 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
               </MenuItem>
               <MenuItem
                 onClick={() => {
-                  clearMutation.mutate(undefined, { onSuccess: () => requestImage(showIntermediate) });
+                  clearMutation.mutate(undefined, {
+                    onSuccess: () => requestImage(showIntermediate),
+                  });
                   closeMenu();
                 }}
                 disabled={clearMutation.isPending}
@@ -479,7 +486,9 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
                 <div key={idx} className="flex items-center gap-2">
                   <div
                     className="w-6 h-6 rounded border"
-                    style={{ backgroundColor: p.hex !== "invalid" ? p.hex : "#000000" }}
+                    style={{
+                      backgroundColor: p.hex !== "invalid" ? p.hex : "#000000",
+                    }}
                     title={p.hex}
                   />
                   <Typography variant="caption">
@@ -541,7 +550,9 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
                     <Select
                       size="small"
                       value={dithering}
-                      onChange={(e: any) => setDithering(e.target.value as string)}
+                      onChange={(e: any) =>
+                        setDithering(e.target.value as string)
+                      }
                       sx={{ minWidth: 220 }}
                     >
                       {DITHER_OPTIONS.map((opt) => (
@@ -550,10 +561,18 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
                         </MenuItem>
                       ))}
                     </Select>
-                    <IconButton size="small" aria-label="previous dithering" onClick={() => cycleDithering(-1)}>
+                    <IconButton
+                      size="small"
+                      aria-label="previous dithering"
+                      onClick={() => cycleDithering(-1)}
+                    >
                       <ChevronLeftIcon fontSize="small" />
                     </IconButton>
-                    <IconButton size="small" aria-label="next dithering" onClick={() => cycleDithering(1)}>
+                    <IconButton
+                      size="small"
+                      aria-label="next dithering"
+                      onClick={() => cycleDithering(1)}
+                    >
                       <ChevronRightIcon fontSize="small" />
                     </IconButton>
                   </Stack>
