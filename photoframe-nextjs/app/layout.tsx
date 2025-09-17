@@ -20,6 +20,7 @@ import IconButton from "@mui/material/IconButton";
 import MenuIcon from "@mui/icons-material/Menu";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import PhotoIcon from "@mui/icons-material/Photo";
 import StorageIcon from "@mui/icons-material/Storage";
@@ -31,7 +32,7 @@ const drawerWidth = 220;
 function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const isSmUp = useMediaQuery((theme: any) => theme.breakpoints.up("sm"));
+  const isMdDn = useMediaQuery((theme: any) => theme.breakpoints.down("md"));
 
   const handleDrawerToggle = () => {
     setMobileOpen((o) => !o);
@@ -40,7 +41,7 @@ function Shell({ children }: { children: ReactNode }) {
     <Box sx={{ display: "flex" }}>
       <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
         <Toolbar>
-          {!isSmUp && (
+          {isMdDn && (
             <IconButton
               color="inherit"
               edge="start"
@@ -51,13 +52,26 @@ function Shell({ children }: { children: ReactNode }) {
               <MenuIcon />
             </IconButton>
           )}
-          <Typography variant="h6" noWrap component="div">
-            photoframe-rs
-          </Typography>
+          <Link
+            href="/"
+            className="flex items-center justify-center gap-6 -ml-3"
+            style={{ textDecoration: "none", color: "inherit" }}
+          >
+            <Image
+              src="/logo.png"
+              alt="photoframe-rs"
+              width={36}
+              height={36}
+              className="pt-1"
+            />
+            <Typography variant="h6" noWrap component="div">
+              photoframe-rs
+            </Typography>
+          </Link>
         </Toolbar>
       </AppBar>
       {/* Permanent drawer on larger screens, temporary on mobile */}
-      {isSmUp ? (
+      {!isMdDn ? (
         <Drawer
           variant="permanent"
           sx={{

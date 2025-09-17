@@ -3,6 +3,7 @@ import { useConfigQuery } from "../../hooks/http";
 import Container from "@mui/material/Container";
 import Grid from "@mui/material/Grid";
 import { FrameCard, Frame } from "../../components/FrameCard";
+import { Skeleton } from "@mui/material";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080";
 
@@ -16,9 +17,14 @@ export default function FramesPage() {
   return (
     <Container className="py-6">
       <h1 className="text-xl font-semibold mb-4">Photo Frames</h1>
-      {isLoading && <p>Loading...</p>}
       {error && <p className="text-red-600">Error</p>}
       <Grid container spacing={2}>
+        {isLoading && (
+          <>
+            <Skeleton variant="rounded" width="100%" height={800} />
+            <Skeleton variant="rounded" width="100%" height={1000} />
+          </>
+        )}
         {frames.map((f) => (
           <Grid key={f.id} size={12}>
             <FrameCard frame={f} refresh={() => refetch()} apiBase={API_BASE} />
