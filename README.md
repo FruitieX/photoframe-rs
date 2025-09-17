@@ -4,6 +4,8 @@ Rust-based photo frame orchestration server for networked (e.g. Spectra E6 / mul
 
 The server periodically selects photos from configured sources, processes them, and pushes the result to networked e‑ink frames over HTTP.
 
+<img width="902" height="1032" alt="Configuration UI" src="https://github.com/user-attachments/assets/6a9694c9-4455-487e-a757-4120b76f0c55" />
+
 ---
 ### Quick start (server)
 ```bash
