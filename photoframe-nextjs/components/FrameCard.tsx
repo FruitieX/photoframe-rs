@@ -343,6 +343,22 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
         action={
           <Stack direction="row" spacing={1} alignItems="center">
             {unsaved && <Chip size="small" color="warning" label="Unsaved" />}
+            {paused && (
+              <Chip
+                size="small"
+                color="default"
+                icon={<PauseCircleIcon fontSize="small" />}
+                label="Paused"
+              />
+            )}
+            {dummy && (
+              <Chip
+                size="small"
+                color="default"
+                icon={<BuildCircleIcon fontSize="small" />}
+                label="Dummy"
+              />
+            )}
           </Stack>
         }
       />
