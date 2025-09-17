@@ -70,9 +70,9 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
   const [previewObjectUrl, setPreviewObjectUrl] = useState<string | null>(null);
   const [tab, setTab] = useState(-1);
   const [paused, setPaused] = useState<boolean>(!!frame.paused);
-  const [flip, setFlip] = useState<boolean>(!!(frame as any).flip);
+  const [flip, setFlip] = useState<boolean>(!!frame.flip);
   const [showIntermediate, setShowIntermediate] = useState<boolean>(false);
-  const [dummy, setDummy] = useState<boolean>(!!(frame as any).dummy);
+  const [dummy, setDummy] = useState<boolean>(!!frame.dummy);
   const requestIdRef = useRef(0);
   const [loadingMode, setLoadingMode] = useState<"preview" | null>(null);
   // Overscan (padding)
@@ -135,7 +135,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
                 lastPreviewParams.current = payload;
                 setLoadingMode(null);
               },
-            } as any);
+            });
           });
       } else {
         previewMutation.mutate(payload, {
@@ -147,7 +147,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
             lastPreviewParams.current = payload;
             setLoadingMode(null);
           },
-        } as any);
+        });
       }
     },
     [
@@ -308,8 +308,8 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
     setTop(frame.overscan?.top ?? 0);
     setBottom(frame.overscan?.bottom ?? 0);
     setPaused(!!frame.paused);
-    setFlip(!!(frame as any).flip);
-    setDummy(!!(frame as any).dummy);
+    setFlip(!!frame.flip);
+    setDummy(!!frame.dummy);
     // No automatic preview if values already match last; queuePreview handles comparison.
     queuePreview();
   }
@@ -325,8 +325,8 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
     top !== (frame.overscan?.top ?? 0) ||
     bottom !== (frame.overscan?.bottom ?? 0) ||
     paused !== !!frame.paused ||
-    flip !== !!(frame as any).flip ||
-    dummy !== !!(frame as any).dummy;
+    flip !== !!frame.flip ||
+    dummy !== !!frame.dummy;
 
   // Auto-refresh preview every minute to reflect external updates.
   useEffect(() => {
