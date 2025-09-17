@@ -5,6 +5,7 @@ use glob::glob;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::any::Any;
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
@@ -16,12 +17,21 @@ pub enum SourceData {
     Bytes(Vec<u8>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ImageMeta {
     pub data: SourceData,
     pub orientation: Orientation,
     #[allow(dead_code)]
     pub id: Option<String>,
+}
+
+impl Debug for ImageMeta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImageMeta")
+            .field("orientation", &self.orientation)
+            .field("id", &self.id)
+            .finish()
+    }
 }
 
 impl Orientation {
