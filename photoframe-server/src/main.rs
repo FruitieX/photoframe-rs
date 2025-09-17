@@ -1,10 +1,5 @@
-mod config;
-mod dither;
-mod frame;
-mod http;
-mod pipeline;
-mod scheduler;
-mod sources;
+use photoframe_server as _;
+use photoframe_server::{config, http, scheduler};
 use tracing_subscriber::{EnvFilter, fmt};
 
 #[tokio::main]

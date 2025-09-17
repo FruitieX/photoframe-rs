@@ -43,3 +43,21 @@ filters = { personIds = ["uuid1", "uuid2"] } # Finds photos containing both pers
 ```
 
 Hint: You can configure multiple immich sources if you want different sets of filters (for example photos containing persons "uuid1" OR "uuid2" must be done with two separate immich sources)
+
+### Embedding the web UI in the server
+
+By default the Rust binary embeds and serves the Next.js UI at `/` using a cargo feature `embed_ui`.
+
+Build steps:
+
+- Build the UI once as a static export (Next.js 14):
+	- `npm install --prefix photoframe-nextjs`
+	- `npm run build --prefix photoframe-nextjs` (produces `photoframe-nextjs/out`)
+- Build and run the server:
+	- `cargo run -p photoframe-server`
+
+Disabling embedding (useful when running `next dev` separately):
+
+```
+cargo run -p photoframe-server --no-default-features
+```

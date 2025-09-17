@@ -17,6 +17,8 @@ use tower_http::{
 use tracing::{Level, instrument};
 
 use crate::frame;
+#[cfg(feature = "embed_ui")]
+use crate::ui;
 use crate::{config, scheduler};
 use std::str::FromStr;
 use std::time::Instant;
@@ -188,7 +190,7 @@ pub fn router(state: AppState) -> Router {
         .on_response(DefaultOnResponse::new().level(Level::INFO))
         .on_failure(DefaultOnFailure::new().level(Level::ERROR));
 
-    Router::new()
+    let app = Router::new()
         .route("/config", get(get_config))
         .route("/frames/{id}", patch(patch_frame))
         .route("/frames/{id}/clear", post(clear_frame))
@@ -210,7 +212,14 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
         .layer(cors)
         .layer(trace)
-        .layer(middleware::from_fn(log_error_responses))
+        .layer(middleware::from_fn(log_error_responses));
+
+    #[cfg(feature = "embed_ui")]
+    let app = app
+        .route("/", get(ui::serve_ui))
+        .route("/{*path}", get(ui::serve_ui));
+
+    app
 }
 
 /// Clear the device screen to solid white by pushing a white PNG the size of the panel.

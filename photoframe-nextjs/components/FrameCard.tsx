@@ -96,16 +96,20 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
       setLoadingMode("preview");
       if (useIntermediate) {
         // fetch intermediate PNG directly
-        fetch(`${apiBase}/frames/${encodeURIComponent(frame.id)}/intermediate`)
+        fetch(
+          `${apiBase}/frames/${encodeURIComponent(frame.id)}/intermediate?ts=${Date.now()}`,
+        )
           .then((res) => {
             if (!res.ok) throw new Error("Intermediate missing");
             return res.blob();
           })
           .then((blob) => {
             if (id !== requestIdRef.current) return;
-            if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
             const url = URL.createObjectURL(blob);
-            setPreviewObjectUrl(url);
+            setPreviewObjectUrl((prev) => {
+              if (prev) URL.revokeObjectURL(prev);
+              return url;
+            });
             setLoadingMode(null);
           })
           .catch(() => {
@@ -113,9 +117,11 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
             previewMutation.mutate(payload, {
               onSuccess: (blob: Blob) => {
                 if (id !== requestIdRef.current) return;
-                if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
                 const url = URL.createObjectURL(blob);
-                setPreviewObjectUrl(url);
+                setPreviewObjectUrl((prev) => {
+                  if (prev) URL.revokeObjectURL(prev);
+                  return url;
+                });
                 lastPreviewParams.current = payload;
                 setLoadingMode(null);
               },
@@ -125,17 +131,30 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
         previewMutation.mutate(payload, {
           onSuccess: (blob: Blob) => {
             if (id !== requestIdRef.current) return; // stale
-            if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
             const url = URL.createObjectURL(blob);
-            setPreviewObjectUrl(url);
+            setPreviewObjectUrl((prev) => {
+              if (prev) URL.revokeObjectURL(prev);
+              return url;
+            });
             lastPreviewParams.current = payload;
             setLoadingMode(null);
           },
         });
       }
     },
-    [uiState, apiBase, frame.id, previewMutation, previewObjectUrl],
+    [uiState, apiBase, frame.id, previewMutation],
   );
+
+  // Keep a stable reference to the latest requestImage
+  const requestImageRef = useRef(requestImage);
+  requestImageRef.current = requestImage;
+
+  // Kick off an initial preview request on mount so the image shows without user interaction.
+  useEffect(() => {
+    requestImageRef.current(false);
+    // run only once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const triggerMutation = useTriggerFrameMutation(apiBase, frame.id, {
     onSuccess: () => requestImage(uiState.showIntermediate),
@@ -284,10 +303,17 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
   // Auto-refresh preview every minute to reflect external updates.
   useEffect(() => {
     const interval = setInterval(() => {
-      requestImage(uiState.showIntermediate);
+      requestImageRef.current(uiState.showIntermediate);
     }, 60_000);
     return () => clearInterval(interval);
-  }, [requestImage, uiState.showIntermediate]);
+  }, [uiState.showIntermediate]);
+
+  // Revoke the created object URL when it changes or on unmount.
+  useEffect(() => {
+    return () => {
+      if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+    };
+  }, [previewObjectUrl]);
 
   return (
     <Card className="flex flex-col h-full">
