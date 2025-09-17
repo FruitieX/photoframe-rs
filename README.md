@@ -29,7 +29,7 @@ Ordered / Other | `ordered_bayer_2`, `ordered_bayer_4`, `ordered_bayer_8`, `orde
 Kind | Config Block | Notes
 -----|--------------|------
 Filesystem | `[sources.<id>.filesystem]` | Glob expanded once at startup; orientation via dimensions.
-Immich | `[sources.<id>.immich]` | Needs `base_url`, `api_key`; optional `filters` for [https://immich.app/docs/api/search-assets](searchAssets) request body parameters.
+Immich | `[sources.<id>.immich]` | Needs `base_url`, `api_key`; optional `filters` for [searchAssets](https://immich.app/docs/api/search-assets) request body parameters.
 
 Immich snippet:
 ```toml
