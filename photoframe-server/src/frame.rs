@@ -115,47 +115,17 @@ pub async fn get_base_image(frame_id: &str) -> Result<Option<DynamicImage>> {
     Ok(None)
 }
 
-/// Load the most recently saved intermediate PNG for a frame, if present.
-#[allow(dead_code)] // Served via HTTP route optionally; silence if unused in builds without that route.
-pub async fn get_intermediate_image(frame_id: &str) -> Result<Option<DynamicImage>> {
-    let path = PathBuf::from(format!("{frame_id}_intermediate.png"));
-    if path.exists() {
-        let img = image::open(&path)?;
-        return Ok(Some(img));
-    }
-    Ok(None)
-}
-
 /// Produce a prepared image from a cached/stored base using current frame adjustments.
 pub fn prepare_from_base(frame: &PhotoFrame, base: &DynamicImage) -> PreparedFrameImage {
-    let derived: Option<Vec<[u8; 3]>> = if !frame.supported_colors.is_empty() {
-        let mut out = Vec::new();
-        for c in &frame.supported_colors {
-            if let Ok(parsed) = c.parse::<Srgb>() {
-                let r = (parsed.red * 255.0).round().clamp(0.0, 255.0) as u8;
-                let g = (parsed.green * 255.0).round().clamp(0.0, 255.0) as u8;
-                let b = (parsed.blue * 255.0).round().clamp(0.0, 255.0) as u8;
-                out.push([r, g, b]);
-                tracing::trace!(input=%c, hex=format!("#{:02x}{:02x}{:02x}", r, g, b), r=%r, g=%g, b=%b, "resolved palette color");
-            }
-        }
-        if out.is_empty() { None } else { Some(out) }
-    } else {
-        None
-    };
-    let palette_ref: Option<&[[u8; 3]]> = match derived {
-        Some(ref v) => {
-            let slice: &[[u8; 3]] = v.as_slice();
-            Some(slice)
-        }
-        None => None,
-    };
+    let palette_vec = derive_palette(frame);
+
     let (w, h, pixels) = pipeline::process(ProcessParams {
         frame,
         base,
-        palette: palette_ref,
+        palette: palette_vec.as_deref(),
     })
     .expect("processing failed");
+
     PreparedFrameImage {
         width: w,
         height: h,
@@ -165,39 +135,38 @@ pub fn prepare_from_base(frame: &PhotoFrame, base: &DynamicImage) -> PreparedFra
 
 /// Assume `scaled` is already scaled & padded to panel size; apply adjustments and dithering only.
 pub fn prepare_from_scaled(frame: &PhotoFrame, scaled: &DynamicImage) -> PreparedFrameImage {
-    let derived: Option<Vec<[u8; 3]>> = if !frame.supported_colors.is_empty() {
-        let mut out = Vec::new();
-        for c in &frame.supported_colors {
-            if let Ok(parsed) = c.parse::<Srgb>() {
-                let r = (parsed.red * 255.0).round().clamp(0.0, 255.0) as u8;
-                let g = (parsed.green * 255.0).round().clamp(0.0, 255.0) as u8;
-                let b = (parsed.blue * 255.0).round().clamp(0.0, 255.0) as u8;
-                out.push([r, g, b]);
-                tracing::trace!(input=%c, hex=format!("#{:02x}{:02x}{:02x}", r, g, b), r=%r, g=%g, b=%b, "resolved palette color");
-            }
-        }
-        if out.is_empty() { None } else { Some(out) }
-    } else {
-        None
-    };
-    let palette_ref: Option<&[[u8; 3]]> = match derived {
-        Some(ref v) => {
-            let slice: &[[u8; 3]] = v.as_slice();
-            Some(slice)
-        }
-        None => None,
-    };
-    let (w, h, pixels) = crate::pipeline::process_from_scaled(crate::pipeline::ProcessParams {
+    let palette_vec = derive_palette(frame);
+
+    let (w, h, pixels) = pipeline::process_from_scaled(ProcessParams {
         frame,
         base: scaled,
-        palette: palette_ref,
+        palette: palette_vec.as_deref(),
     })
     .expect("processing failed");
+
     PreparedFrameImage {
         width: w,
         height: h,
         pixels,
     }
+}
+
+/// Derive a palette from supported_colors; returns None if list empty or only invalid entries.
+fn derive_palette(frame: &PhotoFrame) -> Option<Vec<[u8; 3]>> {
+    if frame.supported_colors.is_empty() {
+        return None;
+    }
+    let mut out = Vec::new();
+    for c in &frame.supported_colors {
+        if let Ok(parsed) = c.parse::<Srgb>() {
+            let r = (parsed.red * 255.0).round().clamp(0.0, 255.0) as u8;
+            let g = (parsed.green * 255.0).round().clamp(0.0, 255.0) as u8;
+            let b = (parsed.blue * 255.0).round().clamp(0.0, 255.0) as u8;
+            tracing::trace!(input=%c, hex=format!("#{:02x}{:02x}{:02x}", r, g, b), r=%r, g=%g, b=%b, "resolved palette color");
+            out.push([r, g, b]);
+        }
+    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 // Removed custom hex parser in favor of css-color crate.
@@ -243,6 +212,7 @@ pub async fn push_to_device(
         let (w, h) = rotated.dimensions();
         (w, h, rotated.to_rgba8().into_raw())
     };
+
     // If native panel dims are provided and differ from current, pad/crop to match native canvas
     if let (Some(pw), Some(ph)) = (frame.panel_width, frame.panel_height)
         && (send_w, send_h) != (pw, ph)
@@ -273,6 +243,7 @@ pub async fn push_to_device(
     } else {
         tracing::warn!(frame=%frame_id, "invalid buffer when saving sent debug png");
     }
+
     // Encode per output format.
     let output_format = frame.output_format.unwrap_or(OutputFormat::Png);
     let (body_bytes, content_type): (Vec<u8>, &'static str) = match output_format {
@@ -311,6 +282,7 @@ pub async fn push_to_device(
                     }
                 }
             }
+
             // Map palette indices to device nibble codes based on nearest known device colors.
             // From GDEP040E01 reference: 0x0=Black, 0x1=White, 0x2=Yellow, 0x3=Red, 0x5=Blue, 0x6=Green.
             let idx_to_nibble: Option<Vec<u8>> = if !palette.is_empty() {
@@ -344,15 +316,26 @@ pub async fn push_to_device(
             };
             let mut out = Vec::with_capacity((send_w * send_h / 2) as usize);
             let mut nibble = None::<u8>;
-            for y in 0..send_h {
-                let row = y as usize;
-                for x in 0..send_w {
-                    let idx = ((row * send_w as usize) + x as usize) * 4;
+            let reverse_rows = frame.reverse_rows.unwrap_or(false);
+            let reverse_cols = frame.reverse_cols.unwrap_or(false);
+            let swap_nibbles = frame.swap_nibbles.unwrap_or(false);
+            let row_iter: Box<dyn Iterator<Item = u32>> = if reverse_rows {
+                Box::new((0..send_h).rev())
+            } else {
+                Box::new(0..send_h)
+            };
+            for y in row_iter {
+                let col_iter: Box<dyn Iterator<Item = u32>> = if reverse_cols {
+                    Box::new((0..send_w).rev())
+                } else {
+                    Box::new(0..send_w)
+                };
+                for x in col_iter {
+                    let idx = ((y as usize * send_w as usize) + x as usize) * 4;
                     let r = send_pixels[idx];
                     let g = send_pixels[idx + 1];
                     let b = send_pixels[idx + 2];
                     let val: u8 = if !palette.is_empty() {
-                        // Find exact match fast-path, otherwise nearest by squared RGB distance.
                         let mut best_i = 0usize;
                         let mut best_dist = u32::MAX;
                         for (i, &p) in palette.iter().enumerate() {
@@ -374,20 +357,26 @@ pub async fn push_to_device(
                             _ => (best_i as u8) & 0x0F,
                         }
                     } else {
-                        // grayscale fallback: 16 levels via luma
                         let l =
                             (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32).round() as u8;
                         ((l as u16 * 15 / 255) as u8) & 0x0F
                     };
-                    if let Some(high) = nibble.take() {
-                        out.push((high << 4) | val);
+                    if let Some(first) = nibble.take() {
+                        if swap_nibbles {
+                            out.push((val << 4) | first);
+                        } else {
+                            out.push((first << 4) | val);
+                        }
                     } else {
                         nibble = Some(val);
                     }
                 }
-                if let Some(high) = nibble.take() {
-                    // odd width: pad last low nibble with 0
-                    out.push(high << 4);
+                if let Some(first) = nibble.take() {
+                    if swap_nibbles {
+                        out.push(first & 0x0F);
+                    } else {
+                        out.push(first << 4);
+                    }
                 }
             }
             (out, "application/octet-stream")
@@ -443,8 +432,10 @@ pub async fn process_and_push(
     limits: Option<&ImageLimits>,
 ) -> Result<()> {
     let base = load_and_store_base(frame_id, meta, frame, limits).await?;
+
     // Compute scaled once and reuse for both saving and final processing.
     let scaled = pipeline::scale_and_pad_only(frame, &base);
+
     // Save intermediate (pre-dither) snapshot
     if let Err(e) = save_intermediate_scaled(frame_id, &scaled).await {
         tracing::warn!(frame=%frame_id, error=%e, "failed saving intermediate image");
@@ -465,6 +456,7 @@ pub async fn handle_direct_upload(
     let mut img = image::load_from_memory(bytes)?;
     img = downscale_to_limits(&img, limits);
     store_base(frame_id, &img).await; // persist unadjusted base before modifications
+
     // Compute & save intermediate once, then finish from scaled
     let scaled = pipeline::scale_and_pad_only(frame, &img);
     if let Err(e) = save_intermediate_scaled(frame_id, &scaled).await {

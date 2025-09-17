@@ -29,10 +29,18 @@ import Tab from "@mui/material/Tab";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
-import Menu from "@mui/material/Menu";
-import MoreVertIcon from "@mui/icons-material/MoreVert";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import SaveIcon from "@mui/icons-material/Save";
+import UndoIcon from "@mui/icons-material/Undo";
+import SendIcon from "@mui/icons-material/Send";
+import FileUploadIcon from "@mui/icons-material/FileUpload";
+import SkipNextIcon from "@mui/icons-material/SkipNext";
+import LayersClearIcon from "@mui/icons-material/LayersClear";
+import PauseCircleIcon from "@mui/icons-material/PauseCircle";
+import PlayCircleIcon from "@mui/icons-material/PlayCircle";
+import BuildCircleIcon from "@mui/icons-material/BuildCircle";
+import ScreenRotationIcon from "@mui/icons-material/ScreenRotation";
 import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
 import { useFramePaletteQuery } from "../hooks/http";
 
@@ -73,8 +81,6 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
   const [top, setTop] = useState(frame.overscan?.top ?? 0);
   const [bottom, setBottom] = useState(frame.overscan?.bottom ?? 0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
-  const menuOpen = !!menuAnchor;
   const pauseMutation = usePauseFrameMutation(apiBase, frame.id);
   const dummyMutation = useDummyFrameMutation(apiBase, frame.id);
   const flipMutation = useFlipFrameMutation(apiBase, frame.id);
@@ -219,12 +225,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
       },
     });
   }
-  function openMenu(e: React.MouseEvent<HTMLElement>) {
-    setMenuAnchor(e.currentTarget);
-  }
-  function closeMenu() {
-    setMenuAnchor(null);
-  }
+  // Removed context menu; actions now inline
   function triggerUploadDialog() {
     fileInputRef.current?.click();
   }
@@ -334,127 +335,6 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
         action={
           <Stack direction="row" spacing={1} alignItems="center">
             {unsaved && <Chip size="small" color="warning" label="Unsaved" />}
-            <IconButton
-              size="small"
-              onClick={openMenu}
-              aria-label="frame actions"
-            >
-              <MoreVertIcon fontSize="small" />
-            </IconButton>
-            <Menu
-              anchorEl={menuAnchor}
-              open={menuOpen}
-              onClose={closeMenu}
-              keepMounted
-            >
-              <MenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const next = !paused;
-                  setPaused(next);
-                  pauseMutation.mutate(next);
-                }}
-              >
-                <FormControlLabel
-                  onClick={(e) => e.stopPropagation()}
-                  control={
-                    <Checkbox
-                      size="small"
-                      checked={paused}
-                      onChange={(_, c) => {
-                        setPaused(c);
-                        pauseMutation.mutate(c);
-                      }}
-                    />
-                  }
-                  label={
-                    pauseMutation.isPending ? "Updating…" : "Pause schedule"
-                  }
-                />
-              </MenuItem>
-              <MenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const next = !dummy;
-                  setDummy(next);
-                  dummyMutation.mutate(next);
-                }}
-              >
-                <FormControlLabel
-                  onClick={(e) => e.stopPropagation()}
-                  control={
-                    <Checkbox
-                      size="small"
-                      checked={dummy}
-                      onChange={(_, c) => {
-                        setDummy(c);
-                        dummyMutation.mutate(c);
-                      }}
-                    />
-                  }
-                  label={dummyMutation.isPending ? "Updating…" : "Dummy mode"}
-                />
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  triggerUploadDialog();
-                }}
-                disabled={uploadMutation.isPending}
-              >
-                Upload image
-              </MenuItem>
-              <MenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const next = !flip;
-                  setFlip(next);
-                  flipMutation.mutate(next);
-                }}
-              >
-                <FormControlLabel
-                  onClick={(e) => e.stopPropagation()}
-                  control={
-                    <Checkbox
-                      size="small"
-                      checked={flip}
-                      onChange={(_, c) => {
-                        setFlip(c);
-                        flipMutation.mutate(c);
-                      }}
-                    />
-                  }
-                  label={flipMutation.isPending ? "Updating…" : "Flip 180°"}
-                />
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  nextMutation.mutate();
-                  closeMenu();
-                }}
-                disabled={nextMutation.isPending}
-              >
-                Next image
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  clearMutation.mutate(undefined, {
-                    onSuccess: () => requestImage(showIntermediate),
-                  });
-                  closeMenu();
-                }}
-                disabled={clearMutation.isPending}
-              >
-                Clear screen
-              </MenuItem>
-            </Menu>
-            <input
-              ref={fileInputRef}
-              hidden
-              type="file"
-              accept="image/*"
-              onChange={onUpload}
-            />
-            {uploadMutation.isPending && <LinearProgress sx={{ width: 60 }} />}
           </Stack>
         }
       />
@@ -476,45 +356,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
             </Typography>
           )}
         </div>
-        {paletteQuery.data && (
-          <div className="p-2">
-            <Typography variant="caption" gutterBottom>
-              Resolved palette
-            </Typography>
-            <div className="flex flex-wrap gap-6 mt-1">
-              {paletteQuery.data.palette.map((p, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <div
-                    className="w-6 h-6 rounded border"
-                    style={{
-                      backgroundColor: p.hex !== "invalid" ? p.hex : "#000000",
-                    }}
-                    title={p.hex}
-                  />
-                  <Typography variant="caption">
-                    {p.input} → {p.hex} ({p.rgb[0]},{p.rgb[1]},{p.rgb[2]})
-                  </Typography>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        <div className="flex items-center gap-2 px-2">
-          <FormControlLabel
-            control={
-              <Checkbox
-                size="small"
-                checked={showIntermediate}
-                onChange={(_, c) => {
-                  setShowIntermediate(c);
-                  // fetch immediately for the chosen mode
-                  requestImage(c);
-                }}
-              />
-            }
-            label="Original image"
-          />
-        </div>
+        {/* Palette moved into Misc Settings tab */}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -538,46 +380,10 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
           <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth">
             <Tab label="Adjustments" />
             <Tab label="Padding" />
+            <Tab label="Misc Settings" />
           </Tabs>
           {tab === 0 && (
             <>
-              <Stack direction="row" spacing={1} alignItems="flex-end">
-                <div className="flex flex-col">
-                  <Typography variant="caption" gutterBottom>
-                    Dithering
-                  </Typography>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Select
-                      size="small"
-                      value={dithering}
-                      onChange={(e: any) =>
-                        setDithering(e.target.value as string)
-                      }
-                      sx={{ minWidth: 220 }}
-                    >
-                      {DITHER_OPTIONS.map((opt) => (
-                        <MenuItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                    <IconButton
-                      size="small"
-                      aria-label="previous dithering"
-                      onClick={() => cycleDithering(-1)}
-                    >
-                      <ChevronLeftIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      aria-label="next dithering"
-                      onClick={() => cycleDithering(1)}
-                    >
-                      <ChevronRightIcon fontSize="small" />
-                    </IconButton>
-                  </Stack>
-                </div>
-              </Stack>
               <Stack spacing={2} sx={{ px: 1 }}>
                 <div>
                   <Typography variant="caption" gutterBottom>
@@ -641,6 +447,59 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
                     marks
                   />
                 </div>
+                <Stack direction="row" spacing={1} alignItems="flex-end">
+                  <div className="flex flex-col">
+                    <Typography variant="caption" gutterBottom>
+                      Dithering
+                    </Typography>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Select
+                        size="small"
+                        value={dithering}
+                        onChange={(e: any) =>
+                          setDithering(e.target.value as string)
+                        }
+                        sx={{ minWidth: 220 }}
+                      >
+                        {DITHER_OPTIONS.map((opt) => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                      <IconButton
+                        size="small"
+                        aria-label="previous dithering"
+                        onClick={() => cycleDithering(-1)}
+                      >
+                        <ChevronLeftIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        aria-label="next dithering"
+                        onClick={() => cycleDithering(1)}
+                      >
+                        <ChevronRightIcon fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  </div>
+                </Stack>
+                <div className="flex items-center gap-2 pb-4">
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={showIntermediate}
+                        onChange={(_, c) => {
+                          setShowIntermediate(c);
+                          // fetch immediately for the chosen mode
+                          requestImage(c);
+                        }}
+                      />
+                    }
+                    label="Show original image"
+                  />
+                </div>
               </Stack>
             </>
           )}
@@ -700,27 +559,183 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
               </div>
             </Stack>
           )}
-          {/* Actions moved into More menu */}
+          {tab === 2 && (
+            <Stack spacing={2} sx={{ px: 1 }}>
+              <div className="flex flex-col gap-1">
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={flip}
+                      onChange={(_, c) => {
+                        setFlip(c);
+                        flipMutation.mutate(c);
+                      }}
+                    />
+                  }
+                  label={
+                    flipMutation.isPending ? (
+                      "Updating…"
+                    ) : (
+                      <span className="flex items-center gap-1">
+                        <ScreenRotationIcon fontSize="small" /> Flip 180°
+                      </span>
+                    )
+                  }
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={paused}
+                      onChange={(_, c) => {
+                        setPaused(c);
+                        pauseMutation.mutate(c);
+                      }}
+                    />
+                  }
+                  label={
+                    pauseMutation.isPending ? (
+                      "Updating…"
+                    ) : (
+                      <span className="flex items-center gap-1">
+                        {paused ? (
+                          <PlayCircleIcon fontSize="small" />
+                        ) : (
+                          <PauseCircleIcon fontSize="small" />
+                        )}
+                        {paused ? "Resume schedule" : "Pause schedule"}
+                      </span>
+                    )
+                  }
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={dummy}
+                      onChange={(_, c) => {
+                        setDummy(c);
+                        dummyMutation.mutate(c);
+                      }}
+                    />
+                  }
+                  label={
+                    dummyMutation.isPending ? (
+                      "Updating…"
+                    ) : (
+                      <span className="flex items-center gap-1">
+                        <BuildCircleIcon fontSize="small" /> Dummy mode
+                      </span>
+                    )
+                  }
+                />
+              </div>
+              <input
+                ref={fileInputRef}
+                hidden
+                type="file"
+                accept="image/*"
+                onChange={onUpload}
+              />
+              <Stack
+                direction="column"
+                spacing={1}
+                alignItems="flex-start"
+                flexWrap="wrap"
+              >
+                <Button
+                  size="small"
+                  startIcon={<LayersClearIcon fontSize="small" />}
+                  onClick={() =>
+                    clearMutation.mutate(undefined, {
+                      onSuccess: () => requestImage(showIntermediate),
+                    })
+                  }
+                  disabled={clearMutation.isPending}
+                >
+                  Clear screen
+                </Button>
+                <Button
+                  size="small"
+                  startIcon={<FileUploadIcon fontSize="small" />}
+                  onClick={triggerUploadDialog}
+                  disabled={uploadMutation.isPending}
+                >
+                  Upload
+                </Button>
+                {uploadMutation.isPending && (
+                  <LinearProgress
+                    sx={{ width: 100, height: 4, borderRadius: 1 }}
+                  />
+                )}
+              </Stack>
+              {paletteQuery.data ? (
+                <div className="p-2">
+                  <Typography variant="caption" gutterBottom>
+                    Resolved palette
+                  </Typography>
+                  <div className="flex flex-wrap gap-6 mt-1">
+                    {paletteQuery.data.palette.map((p, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <div
+                          className="w-6 h-6 rounded border"
+                          style={{
+                            backgroundColor:
+                              p.hex !== "invalid" ? p.hex : "#000000",
+                          }}
+                          title={p.hex}
+                        />
+                        <Typography variant="caption">
+                          {p.input} → {p.hex} ({p.rgb[0]},{p.rgb[1]},{p.rgb[2]})
+                        </Typography>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <Typography variant="caption" color="text.secondary">
+                  Loading palette…
+                </Typography>
+              )}
+            </Stack>
+          )}
           <Stack direction="row" spacing={2}>
+            <Button
+              size="small"
+              type="button"
+              startIcon={<UndoIcon fontSize="small" />}
+              onClick={onCancel}
+            >
+              Revert
+            </Button>
             <Button
               size="small"
               type="submit"
               variant="outlined"
+              startIcon={<SaveIcon fontSize="small" />}
               disabled={patchMutation.isPending}
             >
-              Save
+              Save configuration
             </Button>
-            <Button size="small" type="button" onClick={onCancel}>
-              Cancel
+            <div className="flex-1" />
+            <Button
+              size="small"
+              startIcon={<SkipNextIcon fontSize="small" />}
+              onClick={() => nextMutation.mutate()}
+              disabled={nextMutation.isPending}
+            >
+              Next image
             </Button>
             <Button
               size="small"
               type="button"
               variant="contained"
+              startIcon={<SendIcon fontSize="small" />}
               onClick={() => triggerMutation.mutate()}
               disabled={triggerMutation.isPending}
             >
-              Update
+              Push to frame
             </Button>
           </Stack>
         </form>

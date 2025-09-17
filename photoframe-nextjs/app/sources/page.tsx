@@ -12,6 +12,10 @@ import {
   useSetImmichFilters,
 } from "../../hooks/http";
 import TextField from "@mui/material/TextField";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import Visibility from "@mui/icons-material/Visibility";
+import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import Button from "@mui/material/Button";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080";
@@ -70,6 +74,7 @@ function ImmichInlineOnboard({
   const current = data?.sources?.[sourceId]?.immich;
   const [baseUrl, setBaseUrl] = React.useState("");
   const [apiKey, setApiKey] = React.useState("");
+  const [showKey, setShowKey] = React.useState(false);
   const [filtersText, setFiltersText] = React.useState(
     '{\n  "albumIds": [],\n  "personIds": []\n}',
   );
@@ -125,9 +130,28 @@ function ImmichInlineOnboard({
         <TextField
           size="small"
           label="API Key"
+          type={showKey ? "text" : "password"}
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           className="flex-1"
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  aria-label={showKey ? "Hide API key" : "Show API key"}
+                  onClick={() => setShowKey((v) => !v)}
+                  edge="end"
+                  size="small"
+                >
+                  {showKey ? (
+                    <VisibilityOff fontSize="small" />
+                  ) : (
+                    <Visibility fontSize="small" />
+                  )}
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
         />
         <Button
           size="small"

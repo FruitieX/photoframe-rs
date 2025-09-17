@@ -18,17 +18,25 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|l| l.filter.clone())
         .or_else(|| std::env::var("RUST_LOG").ok())
         .unwrap_or_else(|| "info,photoframe_server=debug".to_string());
+
     fmt()
         .with_env_filter(EnvFilter::new(filter_directive))
         .init();
+
     let scheduler = std::sync::Arc::new(scheduler::FrameScheduler::new(shared.clone()).await?);
     scheduler.populate().await?;
     scheduler.start().await?;
+
     let state = http::AppState {
         cfg: shared,
         scheduler: scheduler.clone(),
     };
     let app = http::router(state);
-    http::serve(app).await?;
+    let bind = cfg_snapshot
+        .server
+        .as_ref()
+        .and_then(|s| s.bind_address.clone());
+    http::serve(app, bind).await?;
+
     Ok(())
 }

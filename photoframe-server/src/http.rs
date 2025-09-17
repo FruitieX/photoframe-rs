@@ -390,11 +390,14 @@ pub async fn set_immich_filters(
     Ok(StatusCode::OK)
 }
 
-pub async fn serve(app: Router) -> anyhow::Result<()> {
-    let addr: SocketAddr = "0.0.0.0:8080".parse().unwrap();
-    axum::serve(tokio::net::TcpListener::bind(addr).await?, app)
-        .await
-        .map_err(Into::into)
+/// Serve the HTTP API. If `bind` is Some it is parsed as a socket address, otherwise
+/// defaults to 0.0.0.0:8080.
+pub async fn serve(app: Router, bind: Option<String>) -> anyhow::Result<()> {
+    let bind_addr = bind.unwrap_or_else(|| "0.0.0.0:8080".to_string());
+    let addr: SocketAddr = bind_addr.parse()?;
+    tracing::info!(addr=%addr, "starting http server");
+    axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
+    Ok(())
 }
 
 pub async fn preview_frame(
