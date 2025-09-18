@@ -2,8 +2,8 @@ use crate::config::{FilesystemSource, ImmichSource, OrderKind, Orientation, Sour
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use glob::glob;
-use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::seq::{IndexedRandom, SliceRandom};
+use rand::{Rng, rng};
 use std::any::Any;
 use std::fmt::Debug;
 use std::path::PathBuf;
@@ -132,7 +132,7 @@ impl FilesystemImageSource {
         tracing::info!(pattern = %glob_pat, total = entries.len(), landscape = l, portrait = p, "filesystem source loaded");
         let order = cfg.order.unwrap_or_default();
         if matches!(order, OrderKind::Random) {
-            let mut rng = StdRng::from_entropy();
+            let mut rng = rng();
             entries.shuffle(&mut rng);
         }
         Ok(Self {
@@ -168,7 +168,7 @@ impl ImageSource for FilesystemImageSource {
             }
             OrderKind::Random => {
                 // random sample until match or attempts exhausted
-                let mut rng = StdRng::from_entropy();
+                let mut rng = rng();
                 for _ in 0..std::cmp::min(32, self.entries.len()) {
                     if let Some(item) = self
                         .entries
@@ -343,9 +343,12 @@ impl ImageSource for ImmichImageSource {
         let order = self.cfg.order.unwrap_or_default();
         match order {
             OrderKind::Random => {
-                let mut rng = StdRng::from_entropy();
                 for _ in 0..32 {
-                    let (asset_id, orient) = snapshot[rng.gen_range(0..snapshot.len())].clone();
+                    let idx = {
+                        let mut rng = rng();
+                        rng.random_range(0..snapshot.len())
+                    };
+                    let (asset_id, orient) = snapshot[idx].clone();
                     if orient != desired {
                         continue;
                     }

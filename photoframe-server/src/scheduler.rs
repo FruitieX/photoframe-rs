@@ -1,7 +1,6 @@
 use crate::{config, frame, sources};
 use anyhow::Result;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
+use rand::rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -106,9 +105,11 @@ impl FrameScheduler {
         let mut selected: Option<sources::ImageMeta> = None;
 
         // Shuffle configured sources before probing to select a source at random
-        let mut rng = StdRng::from_entropy();
         let mut sids: Vec<String> = f.source_ids.to_vec();
-        sids.shuffle(&mut rng);
+        {
+            let mut rng = rng();
+            sids.shuffle(&mut rng);
+        }
         for sid in &sids {
             if let Some(src) = sources_map.get(sid)
                 && let Ok(Some(meta)) = src.next(desired).await
@@ -179,9 +180,11 @@ impl FrameScheduler {
         }
         let mut selected: Option<sources::ImageMeta> = None;
         // Shuffle configured sources before probing to select a source at random
-        let mut rng = StdRng::from_entropy();
         let mut sids: Vec<String> = f.source_ids.to_vec();
-        sids.shuffle(&mut rng);
+        {
+            let mut rng = rng();
+            sids.shuffle(&mut rng);
+        }
         for sid in &sids {
             if let Some(src) = self.sources.get(sid)
                 && let Ok(Some(meta)) = src.next(desired).await

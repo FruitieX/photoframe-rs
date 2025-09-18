@@ -1,14 +1,10 @@
+//! Dithering algorithms ported from [dithermark](https://github.com/allen-garvey/dithermark)
+//!
 //! Diffusion- and ordered-based palette dithering algorithms.
 //! Implements only color palette reduction using a luma color dither mode
 //! (identity RGB values, distance = luma-weighted squared distance, increment =
 //! per-channel addition of propagated RGB error, error amount = raw per-channel
 //! delta).
-//! Algorithms provided (string identifiers):
-//!   floyd_steinberg, jarvis_judice_ninke, stucki, burkes,
-//!   sierra_3, sierra_2, sierra_1, atkinson, reduced_atkinson.
-//! Also ordered color dithers: ordered_bayer_2, ordered_bayer_4, ordered_bayer_8,
-//! ordered_blue_256, stark_8, yliluoma1_8, yliluoma2_8.
-//! Example config names: "sierra_3", "atkinson".
 
 /// Perform in-place dithering & palette reduction on an RGBA buffer.
 ///

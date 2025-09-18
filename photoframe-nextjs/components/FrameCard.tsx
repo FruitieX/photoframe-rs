@@ -387,7 +387,8 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
               uploadPending={uploadMutation.isPending}
               onClear={() =>
                 clearMutation.mutate(undefined, {
-                  onSuccess: () => requestImageRef.current(uiState.showIntermediate),
+                  onSuccess: () =>
+                    requestImageRef.current(uiState.showIntermediate),
                 })
               }
               clearPending={clearMutation.isPending}
