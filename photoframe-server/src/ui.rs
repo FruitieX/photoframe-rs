@@ -11,6 +11,7 @@ use axum::{
 
 #[cfg(feature = "embed_ui")]
 use rust_embed::RustEmbed;
+use tracing::debug;
 
 #[cfg(feature = "embed_ui")]
 #[derive(RustEmbed)]
@@ -25,11 +26,7 @@ fn guess_mime(path: &str) -> mime::Mime {
 #[cfg(feature = "embed_ui")]
 fn respond(path: &str) -> Option<Response> {
     UiAssets::get(path).map(|file| {
-        let mut mime = guess_mime(path);
-        // Next.js app router RSC payloads must be served as text/x-component
-        if path.ends_with(".rsc") {
-            mime = "text/x-component".parse().unwrap();
-        }
+        let mime = guess_mime(path);
         let cache = if path.ends_with(".html") {
             "no-cache"
         } else if path.contains("_next/static") {
@@ -46,33 +43,32 @@ fn respond(path: &str) -> Option<Response> {
 }
 
 #[cfg(feature = "embed_ui")]
-/// Serve embedded UI assets. Maps URLs like `/`, `/frames`, `/assets/app.js` to corresponding files.
 pub async fn serve_ui(uri: Uri) -> Response {
-    let raw_path = uri.path().trim_start_matches('/');
-    let mut tried: Vec<String> = Vec::new();
-    if raw_path.is_empty() {
-        if let Some(resp) = respond("index.html") {
-            return resp;
-        }
-        tried.push("index.html".into());
-    } else {
-        // Try exact file, `path/index.html`, and `path.html`
-        let candidates = [
-            raw_path.to_string(),
-            format!("{}/index.html", raw_path),
-            format!("{}.html", raw_path),
-        ];
-        for cand in &candidates {
-            if let Some(resp) = respond(cand) {
-                return resp;
-            }
-            tried.push(cand.clone());
-        }
+    let path = uri.path().trim_start_matches('/');
+
+    if let Some(resp) = respond(path) {
+        return resp;
     }
-    // Fallback: try Next.js 404 if present, otherwise 404
+
+    let html_path = format!("{}.html", path);
+    if let Some(resp) = respond(&html_path) {
+        return resp;
+    }
+
+    let index_path = if path.is_empty() {
+        "index.html".to_string()
+    } else {
+        format!("{}/index.html", path)
+    };
+    if let Some(resp) = respond(&index_path) {
+        return resp;
+    }
+
+    debug!(path = %path, "Embedded UI asset not found; falling back to 404");
     if let Some(resp) = respond("404.html") {
         return resp;
     }
+
     axum::http::Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(Body::from("Not Found"))

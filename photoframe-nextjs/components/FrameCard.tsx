@@ -157,10 +157,10 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
   }, []);
 
   const triggerMutation = useTriggerFrameMutation(apiBase, frame.id, {
-    onSuccess: () => requestImage(uiState.showIntermediate),
+    onSuccess: () => requestImageRef.current(uiState.showIntermediate),
   });
   const nextMutation = useNextFrameMutation(apiBase, frame.id, {
-    onSuccess: () => requestImage(uiState.showIntermediate),
+    onSuccess: () => requestImageRef.current(uiState.showIntermediate),
   });
 
   const uploadMutation = useUploadFrameMutation(apiBase, frame.id);
@@ -245,8 +245,8 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
     // When showing the Original (intermediate) image, avoid auto-calling /preview.
     if (uiState.showIntermediate) return;
     if (!paramsChanged(payload, lastPreviewParams.current)) return;
-    requestImage(false);
-  }, [uiState, requestImage]);
+    requestImageRef.current(false);
+  }, [uiState]);
 
   useDebouncedEffect(
     queuePreview,
@@ -387,7 +387,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
               uploadPending={uploadMutation.isPending}
               onClear={() =>
                 clearMutation.mutate(undefined, {
-                  onSuccess: () => requestImage(uiState.showIntermediate),
+                  onSuccess: () => requestImageRef.current(uiState.showIntermediate),
                 })
               }
               clearPending={clearMutation.isPending}
