@@ -5,9 +5,7 @@ import Grid from "@mui/material/Grid";
 import { FrameCard, Frame } from "../../components/FrameCard";
 import { Skeleton } from "@mui/material";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ??
-  (typeof window !== "undefined" ? "" : "http://localhost:8080");
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 
 export default function FramesPage() {
   const { data, refetch, isLoading, error } = useConfigQuery(API_BASE);

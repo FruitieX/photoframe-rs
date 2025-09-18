@@ -190,7 +190,8 @@ pub fn router(state: AppState) -> Router {
         .on_response(DefaultOnResponse::new().level(Level::INFO))
         .on_failure(DefaultOnFailure::new().level(Level::ERROR));
 
-    let app = Router::new()
+    // Build API router and mount it under /api
+    let api = Router::new()
         .route("/config", get(get_config))
         .route("/frames/{id}", patch(patch_frame))
         .route("/frames/{id}/clear", post(clear_frame))
@@ -209,10 +210,12 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/sources/{id}/immich/filters", post(set_immich_filters))
         .route("/sources/{id}/refresh", post(refresh_source))
-        .with_state(state)
+        .with_state(state.clone())
         .layer(cors)
         .layer(trace)
         .layer(middleware::from_fn(log_error_responses));
+
+    let app = Router::new().nest("/api", api);
 
     #[cfg(feature = "embed_ui")]
     let app = app

@@ -54,7 +54,11 @@ export function MiscSettingsAccordion(props: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   return (
-    <Accordion expanded={expanded} onChange={(_, e) => onToggle(!!e)}>
+    <Accordion
+      expanded={expanded}
+      disableGutters
+      onChange={(_, e) => onToggle(!!e)}
+    >
       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
         <Typography>Misc Settings</Typography>
       </AccordionSummary>

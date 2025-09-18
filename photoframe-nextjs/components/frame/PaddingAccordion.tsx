@@ -23,7 +23,11 @@ export function PaddingAccordion({
 }: Props) {
   const { left, right, top, bottom } = uiState;
   return (
-    <Accordion expanded={expanded} onChange={(_, e) => onToggle(!!e)}>
+    <Accordion
+      expanded={expanded}
+      disableGutters
+      onChange={(_, e) => onToggle(!!e)}
+    >
       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
         <Typography>Padding</Typography>
       </AccordionSummary>

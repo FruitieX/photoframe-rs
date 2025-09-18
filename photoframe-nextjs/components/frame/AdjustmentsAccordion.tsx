@@ -65,8 +65,8 @@ export function AdjustmentsAccordion(props: Props) {
   return (
     <Accordion
       expanded={expanded}
+      disableGutters
       onChange={(_, e) => onToggle(!!e)}
-      slotProps={{ root: { style: { margin: 0 } } }}
     >
       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
         <Typography>Adjustments</Typography>
