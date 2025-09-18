@@ -7,6 +7,15 @@ use tokio::fs;
 use tokio::sync::RwLock;
 use toml_edit::{DocumentMut, Item, value};
 
+#[cfg(feature = "embed_ui")]
+use rust_embed::RustEmbed;
+
+#[cfg(feature = "embed_ui")]
+#[derive(RustEmbed)]
+#[folder = "../"]
+#[include = "photoframe.example.toml"]
+struct ConfigAssets;
+
 /// Default on-disk config filename
 pub const DEFAULT_CONFIG_PATH: &str = "photoframe.toml";
 
@@ -175,12 +184,40 @@ pub struct ConfigManager {
 pub type SharedConfig = Arc<RwLock<ConfigManager>>;
 
 impl ConfigManager {
-    /// Load existing config file. Errors if the file does not exist.
+    /// Load existing config file. If the file does not exist, creates it from the embedded example.
     pub async fn load(path: Option<PathBuf>) -> Result<SharedConfig> {
         let path = path.unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_PATH));
+
+        // Check if config file exists, if not create it from embedded example
         if !path.exists() {
-            bail!("config file {} not found", path.display());
+            #[cfg(feature = "embed_ui")]
+            {
+                if let Some(example_file) = ConfigAssets::get("photoframe.example.toml") {
+                    let example_content = std::str::from_utf8(&example_file.data)
+                        .with_context(|| "embedded example config is not valid UTF-8")?;
+
+                    fs::write(&path, example_content)
+                        .await
+                        .with_context(|| format!("writing example config to {}", path.display()))?;
+
+                    println!("📝 Created default config file: {}", path.display());
+                    println!(
+                        "   Please edit this file to configure your photo frames and sources."
+                    );
+                    println!("   The server will continue running with the default configuration.");
+                } else {
+                    bail!(
+                        "config file {} not found and embedded example is not available",
+                        path.display()
+                    );
+                }
+            }
+            #[cfg(not(feature = "embed_ui"))]
+            {
+                bail!("config file {} not found", path.display());
+            }
         }
+
         let text = fs::read_to_string(&path)
             .await
             .with_context(|| format!("reading config file {}", path.display()))?;
