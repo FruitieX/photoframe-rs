@@ -398,7 +398,7 @@ impl ImmichImageSource {
         let client = reqwest::Client::new();
         let base = self.cfg.base_url.clone().unwrap_or_default();
         let url = format!(
-            "{}/api/assets/{}/original",
+            "{}/api/assets/{}/thumbnail?size=preview",
             base.trim_end_matches('/'),
             asset_id
         );
