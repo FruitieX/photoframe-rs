@@ -117,6 +117,8 @@ pub struct PhotoFrame {
     pub supported_colors: Vec<String>,
     pub overscan: Option<Overscan>,
     pub adjustments: Option<Adjustments>,
+    /// Timestamp display configuration.
+    pub timestamp: Option<Timestamp>,
     /// Packed 4bpp devices vary in nibble order. When true, pack low-nibble first (left pixel).
     /// Default is false, meaning high-nibble first.
     pub swap_nibbles: Option<bool>,
@@ -144,6 +146,83 @@ pub struct Adjustments {
     pub contrast: f32,
     pub saturation: f32,
     pub sharpness: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TimestampPosition {
+    #[default]
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+    TopLeft,
+    TopCenter,
+    TopRight,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TimestampColor {
+    #[default]
+    TransparentWhiteText,
+    TransparentBlackText,
+    TransparentAutoText,
+    WhiteBackground,
+    BlackBackground,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TimestampStrokeColor {
+    #[default]
+    Auto,
+    White,
+    Black,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Timestamp {
+    /// Whether to enable timestamp display.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Position of the timestamp on the frame.
+    pub position: Option<TimestampPosition>,
+    /// Font size in pixels.
+    pub font_size: Option<f32>,
+    /// Color style for the timestamp.
+    pub color: Option<TimestampColor>,
+    /// Use full-width banner instead of positioning text.
+    #[serde(default)]
+    pub full_width_banner: bool,
+    /// Height of the banner when using full_width_banner (if None, uses font size + padding).
+    pub banner_height: Option<u32>,
+    /// Horizontal padding from the image edge in pixels.
+    pub padding_horizontal: Option<u32>,
+    /// Vertical padding from the image edge in pixels.
+    pub padding_vertical: Option<u32>,
+    /// Enable rendering an outline (stroke) around the timestamp text.
+    #[serde(default)]
+    pub stroke_enabled: bool,
+    /// Stroke width in pixels.
+    pub stroke_width: Option<u32>,
+    /// Stroke color selection (auto chooses opposite of text color).
+    pub stroke_color: Option<TimestampStrokeColor>,
+}
+
+/// Parameters for updating a frame's timestamp config. All fields are optional; only provided values are written.
+#[derive(Debug, Default, Clone)]
+pub struct TimestampUpdate {
+    pub enabled: Option<bool>,
+    pub position: Option<TimestampPosition>,
+    pub font_size: Option<f32>,
+    pub color: Option<TimestampColor>,
+    pub full_width_banner: Option<bool>,
+    pub banner_height: Option<u32>,
+    pub padding_horizontal: Option<u32>,
+    pub padding_vertical: Option<u32>,
+    pub stroke_enabled: Option<bool>,
+    pub stroke_width: Option<u32>,
+    pub stroke_color: Option<TimestampStrokeColor>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -358,6 +437,82 @@ impl ConfigManager {
                 }
                 if let Some(v) = bottom {
                     otbl["bottom"] = value(v as i64);
+                }
+            }
+        } else {
+            bail!("photoframe '{}' is not a table", frame_id);
+        }
+        Ok(())
+    }
+
+    /// Update timestamp configuration for a frame. Only provided values are updated.
+    pub async fn update_frame_timestamp(
+        cfg: &SharedConfig,
+        frame_id: &str,
+        params: &TimestampUpdate,
+    ) -> Result<()> {
+        let mut guard = cfg.write().await;
+        let frames = guard.doc["photoframes"]
+            .as_table_mut()
+            .ok_or_else(|| anyhow::anyhow!("photoframes table missing"))?;
+        let frame = frames
+            .get_mut(frame_id)
+            .ok_or_else(|| anyhow::anyhow!("photoframe '{}' not found", frame_id))?;
+        if let Item::Table(tbl) = frame {
+            let timestamp = tbl["timestamp"].or_insert(Item::Table(toml_edit::Table::new()));
+            if let Item::Table(ts_tbl) = timestamp {
+                if let Some(v) = params.enabled {
+                    ts_tbl["enabled"] = value(v);
+                }
+                if let Some(v) = params.position {
+                    let pos_str = match v {
+                        TimestampPosition::BottomLeft => "bottom_left",
+                        TimestampPosition::BottomCenter => "bottom_center",
+                        TimestampPosition::BottomRight => "bottom_right",
+                        TimestampPosition::TopLeft => "top_left",
+                        TimestampPosition::TopCenter => "top_center",
+                        TimestampPosition::TopRight => "top_right",
+                    };
+                    ts_tbl["position"] = value(pos_str);
+                }
+                if let Some(v) = params.font_size {
+                    ts_tbl["font_size"] = value(v as f64);
+                }
+                if let Some(v) = params.color {
+                    let color_str = match v {
+                        TimestampColor::TransparentWhiteText => "transparent_white_text",
+                        TimestampColor::TransparentBlackText => "transparent_black_text",
+                        TimestampColor::TransparentAutoText => "transparent_auto_text",
+                        TimestampColor::WhiteBackground => "white_background",
+                        TimestampColor::BlackBackground => "black_background",
+                    };
+                    ts_tbl["color"] = value(color_str);
+                }
+                if let Some(v) = params.full_width_banner {
+                    ts_tbl["full_width_banner"] = value(v);
+                }
+                if let Some(v) = params.banner_height {
+                    ts_tbl["banner_height"] = value(v as i64);
+                }
+                if let Some(v) = params.padding_horizontal {
+                    ts_tbl["padding_horizontal"] = value(v as i64);
+                }
+                if let Some(v) = params.padding_vertical {
+                    ts_tbl["padding_vertical"] = value(v as i64);
+                }
+                if let Some(v) = params.stroke_enabled {
+                    ts_tbl["stroke_enabled"] = value(v);
+                }
+                if let Some(v) = params.stroke_width {
+                    ts_tbl["stroke_width"] = value(v as i64);
+                }
+                if let Some(v) = params.stroke_color {
+                    let s = match v {
+                        TimestampStrokeColor::Auto => "auto",
+                        TimestampStrokeColor::White => "white",
+                        TimestampStrokeColor::Black => "black",
+                    };
+                    ts_tbl["stroke_color"] = value(s);
                 }
             }
         } else {

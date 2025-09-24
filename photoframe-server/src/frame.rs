@@ -3,6 +3,9 @@ use crate::pipeline::{self, ProcessParams};
 use crate::sources::{ImageMeta, SourceData};
 use anyhow::{Context, Result};
 use css_color::Srgb;
+use image::ImageDecoder;
+use image::ImageReader;
+use image::metadata::Orientation;
 use image::{DynamicImage, GenericImageView, RgbaImage};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -24,76 +27,211 @@ fn base_cache() -> &'static RwLock<HashMap<String, DynamicImage>> {
     BASE_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
+/// Read EXIF date_taken for a frame id from the persisted `<frame_id>_base.png`, if present.
+pub async fn get_cached_date_taken(frame_id: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let path = PathBuf::from(format!("{frame_id}_base.png"));
+    if !path.exists() {
+        // Try intermediate as a fallback for older caches
+        let ip = PathBuf::from(format!("{frame_id}_intermediate.png"));
+        if ip.exists()
+            && let Ok(bytes) = tokio::fs::read(&ip).await
+            && let Ok(dt) = extract_exif_date_taken(&bytes)
+        {
+            return dt;
+        }
+        return None;
+    }
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => extract_exif_date_taken(&bytes).ok().flatten(),
+        Err(_) => None,
+    }
+}
+
 /// Load source image bytes and store base (unadjusted) image into cache & disk.
+type LoadResult = (
+    DynamicImage,
+    Option<Orientation>,
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<Vec<u8>>,
+);
+
 pub async fn load_and_store_base(
     frame_id: &str,
     meta: &ImageMeta,
     _frame: &PhotoFrame,
     limits: Option<&ImageLimits>,
 ) -> Result<DynamicImage> {
-    let (mut img, orientation_tag): (DynamicImage, Option<u16>) = match &meta.data {
+    let (mut img, orientation_tag, date_taken, exif_blob): LoadResult = match &meta.data {
         SourceData::Path(p) => {
             let bytes = fs::read(p).await?;
             let tag = extract_exif_orientation(&bytes).ok().flatten();
-            (image::load_from_memory(&bytes)?, tag)
+            let date = extract_exif_date_taken(&bytes).ok().flatten();
+            let exif = extract_exif_blob(&bytes).ok().flatten();
+            (image::load_from_memory(&bytes)?, tag, date, exif)
         }
         SourceData::Bytes(b) => {
             let tag = extract_exif_orientation(b).ok().flatten();
-            (image::load_from_memory(b)?, tag)
+            let date = extract_exif_date_taken(b).ok().flatten();
+            let exif = extract_exif_blob(b).ok().flatten();
+            (image::load_from_memory(b)?, tag, date, exif)
         }
     }; // original full-resolution
-    if let Some(tag) = orientation_tag {
-        img = apply_exif_orientation(img, tag);
+    if let Some(orient) = orientation_tag {
+        img = apply_exif_orientation(img, orient);
     }
     img = downscale_to_limits(&img, limits);
-    store_base(frame_id, &img).await;
+    store_base(frame_id, &img, date_taken, exif_blob).await;
     Ok(img)
 }
 
-/// Attempt to parse EXIF orientation (1,3,6,8) from raw image bytes.
-fn extract_exif_orientation(bytes: &[u8]) -> Result<Option<u16>> {
+/// Attempt to read EXIF orientation using image crate decoder.
+fn extract_exif_orientation(bytes: &[u8]) -> Result<Option<Orientation>> {
     use std::io::Cursor;
-    let mut cursor = Cursor::new(bytes);
-    let reader = match exif::Reader::new().read_from_container(&mut cursor) {
-        Ok(r) => r,
-        Err(_) => return Ok(None),
+    let cursor = Cursor::new(bytes);
+    let reader = ImageReader::new(cursor).with_guessed_format()?;
+    let mut decoder = reader.into_decoder()?;
+    Ok(decoder.orientation().ok())
+}
+
+/// Extract EXIF DateTimeOriginal/DateTime via image crate decoder.
+fn extract_exif_date_taken(bytes: &[u8]) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
+    use std::io::Cursor;
+    // First, try to get raw EXIF via image decoder
+    let exif_opt: Option<exif::Exif> = (|| {
+        let cursor = Cursor::new(bytes);
+        let reader = ImageReader::new(cursor).with_guessed_format().ok()?;
+        let mut decoder = reader.into_decoder().ok()?;
+        let exif_bytes = decoder.exif_metadata().ok().flatten()?;
+        exif::Reader::new().read_raw(exif_bytes).ok()
+    })();
+
+    // Fallback: ask kamadak-exif to read from the container (e.g., JPEG) directly
+    let exif = match exif_opt {
+        Some(r) => r,
+        None => {
+            let mut cur = Cursor::new(bytes);
+            match exif::Reader::new().read_from_container(&mut cur) {
+                Ok(r) => r,
+                Err(_) => return Ok(None),
+            }
+        }
     };
-    if let Some(field) = reader.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
-        // Typical value form is SHORT with one element.
-        if let exif::Value::Short(ref v) = field.value
-            && let Some(val) = v.first()
+
+    // Helpers to retrieve ASCII values and to search all IFDs if PRIMARY is missing
+    let get_ascii = |tag: exif::Tag| -> Option<String> {
+        exif.get_field(tag, exif::In::PRIMARY)
+            .or_else(|| exif.fields().find(|f| f.tag == tag))
+            .and_then(|f| match &f.value {
+                exif::Value::Ascii(v) if !v.is_empty() => std::str::from_utf8(&v[0])
+                    .ok()
+                    .map(|s| s.trim().to_string()),
+                _ => None,
+            })
+    };
+
+    // Build a base timestamp string from tags
+    let mut base =
+        match get_ascii(exif::Tag::DateTimeOriginal).or_else(|| get_ascii(exif::Tag::DateTime)) {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+    // Append subseconds if present
+    if let Some(sub) = get_ascii(exif::Tag::SubSecTimeOriginal)
+        .or_else(|| get_ascii(exif::Tag::SubSecTime))
+        .filter(|s| !s.is_empty())
+    {
+        base.push('.');
+        base.push_str(sub.trim());
+    }
+    // Append normalized timezone offset if present
+    if let Some(off_raw) =
+        get_ascii(exif::Tag::OffsetTimeOriginal).or_else(|| get_ascii(exif::Tag::OffsetTime))
+    {
+        let mut off = off_raw.trim().replace(' ', "");
+        // Normalize +HHMM -> +HH:MM
+        if off.len() == 5
+            && (off.starts_with('+') || off.starts_with('-'))
+            && off.chars().skip(1).all(|c| c.is_ascii_digit())
         {
-            return Ok(Some(*val));
+            off = format!("{}{}:{}", &off[0..2], &off[2..4], &off[4..5]);
         }
-        // Fallback parse of display string.
-        let disp = field.display_value().with_unit(&reader).to_string();
-        if let Ok(parsed) = disp.trim().parse::<u16>() {
-            return Ok(Some(parsed));
+        // If already like +HH:MM, keep as-is
+        if !off.is_empty() {
+            base.push_str(off.as_str());
         }
+    }
+
+    // Try parsing with several formats
+    if let Ok(dt) = chrono::DateTime::parse_from_str(&base, "%Y:%m:%d %H:%M:%S%.f%:z") {
+        return Ok(Some(dt.with_timezone(&chrono::Utc)));
+    }
+    if let Ok(dt) = chrono::DateTime::parse_from_str(&base, "%Y:%m:%d %H:%M:%S%:z") {
+        return Ok(Some(dt.with_timezone(&chrono::Utc)));
+    }
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&base, "%Y:%m:%d %H:%M:%S%.f") {
+        return Ok(Some(
+            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc),
+        ));
+    }
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&base, "%Y:%m:%d %H:%M:%S") {
+        return Ok(Some(
+            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc),
+        ));
     }
     Ok(None)
 }
 
-/// Apply EXIF orientation transform producing a correctly oriented image in view coordinates.
-fn apply_exif_orientation(img: DynamicImage, tag: u16) -> DynamicImage {
-    match tag {
-        1 => img,
-        3 => image::DynamicImage::ImageRgba8(image::imageops::rotate180(&img)),
-        6 => image::DynamicImage::ImageRgba8(image::imageops::rotate90(&img)),
-        8 => image::DynamicImage::ImageRgba8(image::imageops::rotate270(&img)),
-        // Mirror / other less common tags (2,4,5,7) currently not handled explicitly; fall back to original.
-        _ => img,
-    }
+/// Extract raw EXIF blob to re-embed when saving intermediates.
+fn extract_exif_blob(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+    use std::io::Cursor;
+    let cursor = Cursor::new(bytes);
+    let reader = ImageReader::new(cursor).with_guessed_format()?;
+    let mut decoder = reader.into_decoder()?;
+    Ok(decoder.exif_metadata().ok().flatten())
 }
 
-async fn store_base(frame_id: &str, img: &DynamicImage) {
+/// Apply orientation transform producing a correctly oriented image in view coordinates.
+fn apply_exif_orientation(mut img: DynamicImage, orient: Orientation) -> DynamicImage {
+    img.apply_orientation(orient);
+    img
+}
+
+async fn store_base(
+    frame_id: &str,
+    img: &DynamicImage,
+    _date_taken: Option<chrono::DateTime<chrono::Utc>>,
+    exif_blob: Option<Vec<u8>>,
+) {
+    // Keep an in-memory copy of the base image pixels for fast reuse within the same process.
     {
         let mut guard = base_cache().write().await;
         guard.insert(frame_id.to_string(), img.clone());
     }
+
+    // Persist to `<frame_id>_base.png` and embed EXIF if available.
+    use image::{ImageEncoder, codecs::png::PngEncoder};
+    use std::fs::File;
     let path = PathBuf::from(format!("{frame_id}_base.png"));
-    if let Err(e) = img.save(&path) {
-        tracing::warn!(frame=%frame_id, error=%e, "failed saving base image");
+    let rgba = img.to_rgba8();
+    match File::create(&path) {
+        Ok(mut f) => {
+            let mut enc = PngEncoder::new(&mut f);
+            if let Some(exif) = exif_blob
+                && let Err(e) = enc.set_exif_metadata(exif)
+            {
+                tracing::warn!(frame=%frame_id, error=%e, "failed to set EXIF on base png");
+            }
+            if let Err(e) = enc.write_image(
+                rgba.as_raw(),
+                rgba.width(),
+                rgba.height(),
+                image::ExtendedColorType::Rgba8,
+            ) {
+                tracing::warn!(frame=%frame_id, error=%e, "failed to encode base png");
+            }
+        }
+        Err(e) => tracing::warn!(frame=%frame_id, error=%e, "failed to create base png"),
     }
 }
 
@@ -117,12 +255,22 @@ pub async fn get_base_image(frame_id: &str) -> Result<Option<DynamicImage>> {
 
 /// Produce a prepared image from a cached/stored base using current frame adjustments.
 pub fn prepare_from_base(frame: &PhotoFrame, base: &DynamicImage) -> PreparedFrameImage {
+    prepare_from_base_with_date(frame, base, None)
+}
+
+/// Produce a prepared image from a cached/stored base using current frame adjustments with date taken.
+pub fn prepare_from_base_with_date(
+    frame: &PhotoFrame,
+    base: &DynamicImage,
+    date_taken: Option<chrono::DateTime<chrono::Utc>>,
+) -> PreparedFrameImage {
     let palette_vec = derive_palette(frame);
 
     let (w, h, pixels) = pipeline::process(ProcessParams {
         frame,
         base,
         palette: palette_vec.as_deref(),
+        date_taken: date_taken.map(|d| d.naive_utc()),
     })
     .expect("processing failed");
 
@@ -141,6 +289,30 @@ pub fn prepare_from_scaled(frame: &PhotoFrame, scaled: &DynamicImage) -> Prepare
         frame,
         base: scaled,
         palette: palette_vec.as_deref(),
+        date_taken: None,
+    })
+    .expect("processing failed");
+
+    PreparedFrameImage {
+        width: w,
+        height: h,
+        pixels,
+    }
+}
+
+/// Variant that allows passing a known date_taken for timestamp rendering.
+pub fn prepare_from_scaled_with_date(
+    frame: &PhotoFrame,
+    scaled: &DynamicImage,
+    date_taken: Option<chrono::DateTime<chrono::Utc>>,
+) -> PreparedFrameImage {
+    let palette_vec = derive_palette(frame);
+
+    let (w, h, pixels) = pipeline::process_from_scaled(ProcessParams {
+        frame,
+        base: scaled,
+        palette: palette_vec.as_deref(),
+        date_taken: date_taken.map(|d| d.naive_utc()),
     })
     .expect("processing failed");
 
@@ -436,11 +608,12 @@ pub async fn process_and_push(
     // Compute scaled once and reuse for both saving and final processing.
     let scaled = pipeline::scale_and_pad_only(frame, &base);
 
-    // Save intermediate (pre-dither) snapshot
-    if let Err(e) = save_intermediate_scaled(frame_id, &scaled).await {
+    // Save intermediate (pre-dither) snapshot with date taken metadata
+    let date_taken = get_cached_date_taken(frame_id).await;
+    if let Err(e) = save_intermediate_scaled_with_metadata(frame_id, &scaled, date_taken).await {
         tracing::warn!(frame=%frame_id, error=%e, "failed saving intermediate image");
     }
-    let prepared = prepare_from_scaled(frame, &scaled);
+    let prepared = prepare_from_scaled_with_date(frame, &scaled, date_taken);
     let _path = save_prepared(frame_id, &prepared)?; // ignore path for now
     push_to_device(frame_id, frame, &prepared).await?;
     Ok(())
@@ -454,15 +627,17 @@ pub async fn handle_direct_upload(
     limits: Option<&ImageLimits>,
 ) -> Result<PreparedFrameImage> {
     let mut img = image::load_from_memory(bytes)?;
+    let date_taken = extract_exif_date_taken(bytes).ok().flatten();
     img = downscale_to_limits(&img, limits);
-    store_base(frame_id, &img).await; // persist unadjusted base before modifications
+    let exif_blob = extract_exif_blob(bytes).ok().flatten();
+    store_base(frame_id, &img, date_taken, exif_blob).await; // persist unadjusted base before modifications
 
     // Compute & save intermediate once, then finish from scaled
     let scaled = pipeline::scale_and_pad_only(frame, &img);
-    if let Err(e) = save_intermediate_scaled(frame_id, &scaled).await {
+    if let Err(e) = save_intermediate_scaled_with_metadata(frame_id, &scaled, date_taken).await {
         tracing::warn!(frame=%frame_id, error=%e, "failed saving intermediate image (upload)");
     }
-    let prepared = prepare_from_scaled(frame, &scaled);
+    let prepared = prepare_from_scaled_with_date(frame, &scaled, date_taken);
     Ok(prepared)
 }
 
@@ -502,17 +677,47 @@ pub async fn save_intermediate_from_base(
 ) -> Result<PathBuf> {
     // Intermediate is generated post scaling/padding but pre adjustments.
     let img = pipeline::scale_and_pad_only(frame, base);
-    let path = PathBuf::from(format!("{frame_id}_intermediate.png"));
-    img.save(&path)
-        .with_context(|| format!("saving {}", path.display()))?;
-    Ok(path)
+    // Delegate to the EXIF-aware writer to preserve EXIF from base PNG.
+    save_intermediate_scaled_with_metadata(frame_id, &img, None).await
 }
 
 /// Save a pre-dither intermediate image (after scaling/overscan and adjustments) from a prepared scaled image.
 pub async fn save_intermediate_scaled(frame_id: &str, scaled: &DynamicImage) -> Result<PathBuf> {
+    save_intermediate_scaled_with_metadata(frame_id, scaled, None).await
+}
+
+pub async fn save_intermediate_scaled_with_metadata(
+    frame_id: &str,
+    scaled: &DynamicImage,
+    _date_taken: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<PathBuf> {
+    use image::{ImageEncoder, codecs::png::PngEncoder};
+    use std::fs::File;
     let path = PathBuf::from(format!("{frame_id}_intermediate.png"));
-    scaled
-        .save(&path)
-        .with_context(|| format!("saving {}", path.display()))?;
+    let rgba = scaled.to_rgba8();
+    let mut f = File::create(&path).with_context(|| format!("create {}", path.display()))?;
+    let mut enc = PngEncoder::new(&mut f);
+    // Attempt to copy EXIF from the persisted base PNG so metadata survives in the preview.
+    if let Some(exif) = read_exif_from_base_png(frame_id).await {
+        let _ = enc.set_exif_metadata(exif);
+    }
+    enc.write_image(
+        rgba.as_raw(),
+        rgba.width(),
+        rgba.height(),
+        image::ExtendedColorType::Rgba8,
+    )
+    .with_context(|| format!("encode {}", path.display()))?;
     Ok(path)
+}
+
+/// Read raw EXIF blob from `<frame_id>_base.png`, if any.
+async fn read_exif_from_base_png(frame_id: &str) -> Option<Vec<u8>> {
+    use std::io::Cursor;
+    let path = PathBuf::from(format!("{frame_id}_base.png"));
+    let bytes = tokio::fs::read(&path).await.ok()?;
+    let cursor = Cursor::new(bytes);
+    let reader = ImageReader::new(cursor).with_guessed_format().ok()?;
+    let mut decoder = reader.into_decoder().ok()?;
+    decoder.exif_metadata().ok().flatten()
 }

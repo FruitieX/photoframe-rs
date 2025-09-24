@@ -278,7 +278,8 @@ impl FrameScheduler {
             return Ok(());
         };
         if let Some(base) = crate::frame::get_base_image(frame_id).await? {
-            let prepared = frame::prepare_from_base(f, &base);
+            let date_taken = crate::frame::get_cached_date_taken(frame_id).await;
+            let prepared = frame::prepare_from_base_with_date(f, &base, date_taken);
             let _ = frame::save_prepared(frame_id, &prepared);
             frame::push_to_device(frame_id, f, &prepared).await?;
         }

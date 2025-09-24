@@ -13,10 +13,37 @@ export interface Overscan {
   top: number;
   bottom: number;
 }
+
+export type TimestampPosition = 
+  | "bottom_left" 
+  | "bottom_center" 
+  | "bottom_right" 
+  | "top_left" 
+  | "top_center" 
+  | "top_right";
+
+export type TimestampColor = "transparent_white_text" | "transparent_black_text" | "transparent_auto_text" | "white_background" | "black_background";
+export type TimestampStrokeColor = "auto" | "white" | "black";
+
+export interface Timestamp {
+  enabled: boolean;
+  position?: TimestampPosition;
+  font_size?: number;
+  color?: TimestampColor;
+  full_width_banner: boolean;
+  banner_height?: number;
+  padding_horizontal?: number;
+  padding_vertical?: number;
+  stroke_enabled?: boolean;
+  stroke_width?: number;
+  stroke_color?: TimestampStrokeColor;
+}
+
 export interface FrameConfig {
   dithering?: string;
   adjustments?: FrameAdjustments;
   overscan?: Overscan;
+  timestamp?: Timestamp;
   paused?: boolean;
   dummy?: boolean;
   flip?: boolean;
@@ -90,6 +117,17 @@ export interface FramePatchPayload extends FrameAdjustments {
   paused?: boolean;
   dummy?: boolean;
   flip?: boolean;
+  timestamp_enabled?: boolean;
+  timestamp_position?: TimestampPosition;
+  timestamp_font_size?: number;
+  timestamp_color?: TimestampColor;
+  timestamp_full_width_banner?: boolean;
+  timestamp_banner_height?: number;
+  timestamp_padding_horizontal?: number;
+  timestamp_padding_vertical?: number;
+  timestamp_stroke_enabled?: boolean;
+  timestamp_stroke_width?: number;
+  timestamp_stroke_color?: TimestampStrokeColor;
 }
 export interface PreviewParams extends FramePatchPayload {}
 

@@ -12,7 +12,20 @@ export interface FrameUiState {
   flip: boolean;
   dummy: boolean;
   showIntermediate: boolean;
-  tab: number; // -1 closed, 0 adjustments, 1 padding, 2 misc
+  tab: number; // -1 closed, 0 adjustments, 1 padding, 2 timestamp, 3 misc
+  // Timestamp settings
+  timestampEnabled: boolean;
+  timestampPosition: string;
+  timestampFontSize: number;
+  timestampColor: string;
+  timestampFullWidthBanner: boolean;
+  timestampBannerHeight: number;
+  timestampPaddingHorizontal: number;
+  timestampPaddingVertical: number;
+  // Stroke
+  timestampStrokeEnabled: boolean;
+  timestampStrokeWidth: number;
+  timestampStrokeColor: string;
 }
 
 export type SetFrameUiState = (

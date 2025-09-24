@@ -55,6 +55,28 @@ pub struct FrameUpdate {
     pub dummy: Option<bool>,
     #[serde(default)]
     pub flip: Option<bool>,
+    #[serde(default)]
+    pub timestamp_enabled: Option<bool>,
+    #[serde(default)]
+    pub timestamp_position: Option<crate::config::TimestampPosition>,
+    #[serde(default)]
+    pub timestamp_font_size: Option<f32>,
+    #[serde(default)]
+    pub timestamp_color: Option<crate::config::TimestampColor>,
+    #[serde(default)]
+    pub timestamp_full_width_banner: Option<bool>,
+    #[serde(default)]
+    pub timestamp_banner_height: Option<u32>,
+    #[serde(default)]
+    pub timestamp_padding_horizontal: Option<u32>,
+    #[serde(default)]
+    pub timestamp_padding_vertical: Option<u32>,
+    #[serde(default)]
+    pub timestamp_stroke_enabled: Option<bool>,
+    #[serde(default)]
+    pub timestamp_stroke_width: Option<u32>,
+    #[serde(default)]
+    pub timestamp_stroke_color: Option<crate::config::TimestampStrokeColor>,
 }
 
 #[derive(Serialize)]
@@ -63,6 +85,7 @@ pub struct FrameResponse {
     pub dithering: Option<String>,
     pub adjustments: Option<crate::config::Adjustments>,
     pub overscan: Option<crate::config::Overscan>,
+    pub timestamp: Option<crate::config::Timestamp>,
     pub paused: bool,
     pub dummy: bool,
     pub flip: bool,
@@ -155,6 +178,38 @@ pub async fn patch_frame(
             .await
             .map_err(|_| StatusCode::BAD_REQUEST)?;
     }
+    if payload.timestamp_enabled.is_some()
+        || payload.timestamp_position.is_some()
+        || payload.timestamp_font_size.is_some()
+        || payload.timestamp_color.is_some()
+        || payload.timestamp_full_width_banner.is_some()
+        || payload.timestamp_banner_height.is_some()
+        || payload.timestamp_padding_horizontal.is_some()
+        || payload.timestamp_padding_vertical.is_some()
+        || payload.timestamp_stroke_enabled.is_some()
+        || payload.timestamp_stroke_width.is_some()
+        || payload.timestamp_stroke_color.is_some()
+    {
+        config::ConfigManager::update_frame_timestamp(
+            &state.cfg,
+            &frame_id,
+            &config::TimestampUpdate {
+                enabled: payload.timestamp_enabled,
+                position: payload.timestamp_position,
+                font_size: payload.timestamp_font_size,
+                color: payload.timestamp_color,
+                full_width_banner: payload.timestamp_full_width_banner,
+                banner_height: payload.timestamp_banner_height,
+                padding_horizontal: payload.timestamp_padding_horizontal,
+                padding_vertical: payload.timestamp_padding_vertical,
+                stroke_enabled: payload.timestamp_stroke_enabled,
+                stroke_width: payload.timestamp_stroke_width,
+                stroke_color: payload.timestamp_stroke_color,
+            },
+        )
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    }
     config::ConfigManager::save(&state.cfg)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -168,6 +223,7 @@ pub async fn patch_frame(
             dithering: frame.dithering.clone(),
             adjustments: frame.adjustments.clone(),
             overscan: frame.overscan.clone(),
+            timestamp: frame.timestamp.clone(),
             paused: frame.paused,
             dummy: frame.dummy,
             flip: frame.flip.unwrap_or(false),
@@ -495,8 +551,59 @@ pub async fn preview_frame(
             }
             effective.overscan = Some(o);
         }
+        // Apply timestamp preview parameters
+        if payload.timestamp_enabled.is_some()
+            || payload.timestamp_position.is_some()
+            || payload.timestamp_font_size.is_some()
+            || payload.timestamp_color.is_some()
+            || payload.timestamp_full_width_banner.is_some()
+            || payload.timestamp_banner_height.is_some()
+            || payload.timestamp_padding_horizontal.is_some()
+            || payload.timestamp_padding_vertical.is_some()
+            || payload.timestamp_stroke_enabled.is_some()
+            || payload.timestamp_stroke_width.is_some()
+            || payload.timestamp_stroke_color.is_some()
+        {
+            let mut ts = effective.timestamp.clone().unwrap_or_default();
+            if let Some(v) = payload.timestamp_enabled {
+                ts.enabled = v;
+            }
+            if let Some(v) = payload.timestamp_position {
+                ts.position = Some(v);
+            }
+            if let Some(v) = payload.timestamp_font_size {
+                ts.font_size = Some(v);
+            }
+            if let Some(v) = payload.timestamp_color {
+                ts.color = Some(v);
+            }
+            if let Some(v) = payload.timestamp_full_width_banner {
+                ts.full_width_banner = v;
+            }
+            if let Some(v) = payload.timestamp_banner_height {
+                ts.banner_height = Some(v);
+            }
+            if let Some(v) = payload.timestamp_padding_horizontal {
+                ts.padding_horizontal = Some(v);
+            }
+            if let Some(v) = payload.timestamp_padding_vertical {
+                ts.padding_vertical = Some(v);
+            }
+            if let Some(v) = payload.timestamp_stroke_enabled {
+                ts.stroke_enabled = v;
+            }
+            if let Some(v) = payload.timestamp_stroke_width {
+                ts.stroke_width = Some(v);
+            }
+            if let Some(v) = payload.timestamp_stroke_color {
+                ts.stroke_color = Some(v);
+            }
+            effective.timestamp = Some(ts);
+        }
     }
-    let prepared = frame::prepare_from_base(&effective, &base);
+    // Use cached date_taken for timestamp rendering if available.
+    let date_taken = frame::get_cached_date_taken(&frame_id).await;
+    let prepared = frame::prepare_from_base_with_date(&effective, &base, date_taken);
     let img = image::RgbaImage::from_raw(prepared.width, prepared.height, prepared.pixels)
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
     let dynimg = image::DynamicImage::ImageRgba8(img);

@@ -38,10 +38,10 @@ orientation = "landscape" # or "portrait"
 panel_width = 800
 panel_height = 480
 
-flip = false					    # true = flip the final image 180 degrees
-scaling = "cover"         # or "contain"
-output_format = "png"     # or "packed4bpp"
-upload_transport = "raw"  # or "multipart"
+flip = false             # true = flip the final image 180 degrees
+scaling = "cover"        # or "contain"
+output_format = "png"    # or "packed4bpp"
+upload_transport = "raw" # or "multipart"
 dithering = "sierra_3"
 
 source_ids = ["local_favorites", "family_album"]
@@ -71,6 +71,13 @@ contrast = 0.10
 saturation = 0.20
 sharpness = 0.15
 
+[photoframes.living_room.timestamp]
+enabled = true
+position = "bottom_right"
+font_size = 20.0
+background = "white"
+full_width_banner = false
+
 [photoframes.hallway]
 # Don't actually upload anything to the frame if set to true
 dummy = true
@@ -84,7 +91,7 @@ panel_height = 1072
 
 flip = true
 scaling = "contain"
-output_format = "packed4bpp" # device expects 4bpp packed stream
+output_format = "packed4bpp"   # device expects 4bpp packed stream
 upload_transport = "multipart"
 dithering = "atkinson"
 
@@ -115,6 +122,14 @@ contrast = 0.05
 saturation = 0.10
 sharpness = 0.10
 
+[photoframes.hallway.timestamp]
+enabled = true
+position = "bottom_center"
+font_size = 24.0
+background = "black"
+full_width_banner = true
+banner_height = 40
+
 # ------------------------------------------------------------------
 # Sources (keyed tables)
 # ------------------------------------------------------------------
@@ -133,4 +148,7 @@ kind = "immich"
 base_url = "http://immich.local:2283"
 api_key = "YOUR_IMMICH_API_KEY"
 order = "random"
-filters = { personIds = ["ff59fc83-9f62-4455-8687-6caa4884fb0a", "8d34adbb-bde8-4158-a1b9-fe96375e5e82"] }
+filters = { personIds = [
+	"ff59fc83-9f62-4455-8687-6caa4884fb0a",
+	"8d34adbb-bde8-4158-a1b9-fe96375e5e82",
+] }
