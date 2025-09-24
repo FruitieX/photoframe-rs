@@ -210,6 +210,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/sources/{id}/immich/filters", post(set_immich_filters))
         .route("/sources/{id}/refresh", post(refresh_source))
+        .route("/sources/reload", post(reload_sources))
         .with_state(state.clone())
         .layer(cors)
         .layer(trace)
@@ -379,6 +380,14 @@ pub async fn set_immich_credentials(
     config::ConfigManager::save(&state.cfg)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Reload sources to pick up the new credentials
+    state
+        .scheduler
+        .reload_sources()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     Ok(StatusCode::OK)
 }
 
@@ -399,6 +408,14 @@ pub async fn set_immich_filters(
     config::ConfigManager::save(&state.cfg)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Reload sources to pick up the new filters
+    state
+        .scheduler
+        .reload_sources()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     Ok(StatusCode::OK)
 }
 
@@ -518,6 +535,16 @@ pub async fn refresh_source(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::ACCEPTED)
+}
+
+#[instrument(err, skip_all)]
+pub async fn reload_sources(State(state): State<AppState>) -> Result<StatusCode, StatusCode> {
+    state
+        .scheduler
+        .reload_sources()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::OK)
 }
 
 pub async fn trigger_frame(

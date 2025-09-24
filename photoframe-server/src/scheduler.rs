@@ -4,36 +4,61 @@ use rand::rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::info;
+
+type SharedImageSource = Arc<Box<dyn sources::ImageSource>>;
+type SourcesMap = HashMap<String, SharedImageSource>;
+type SharedSourcesMap = Arc<RwLock<SourcesMap>>;
 
 pub struct FrameScheduler {
     sched: JobScheduler,
     cfg: config::SharedConfig,
-    pub(crate) sources: Arc<HashMap<String, Box<dyn sources::ImageSource>>>,
+    pub(crate) sources: SharedSourcesMap,
 }
 
 impl FrameScheduler {
     pub async fn new(cfg: config::SharedConfig) -> Result<Self> {
         let sched = JobScheduler::new().await?;
-        // build sources from config snapshot once (later we can watch for changes)
-        let snapshot = config::ConfigManager::to_struct(&cfg).await?;
-        let mut map: HashMap<String, Box<dyn sources::ImageSource>> = HashMap::new();
+        let sources_map = Self::build_sources_map(&cfg).await?;
+        Ok(Self {
+            sched,
+            cfg,
+            sources: Arc::new(RwLock::new(sources_map)),
+        })
+    }
+
+    /// Build the sources map from the current configuration
+    async fn build_sources_map(cfg: &config::SharedConfig) -> Result<SourcesMap> {
+        let snapshot = config::ConfigManager::to_struct(cfg).await?;
+        let mut map: SourcesMap = HashMap::new();
         for (id, src_cfg) in snapshot.sources.iter() {
             match sources::build_source(src_cfg) {
                 Ok(built) => {
-                    map.insert(id.clone(), built);
+                    map.insert(id.clone(), Arc::new(built));
                 }
                 Err(e) => {
                     tracing::warn!(source = %id, error = %e, "failed to build source");
                 }
             }
         }
-        Ok(Self {
-            sched,
-            cfg,
-            sources: Arc::new(map),
-        })
+        Ok(map)
+    }
+
+    /// Reload all sources from the current configuration
+    pub async fn reload_sources(&self) -> Result<()> {
+        tracing::info!("reloading sources from configuration");
+        let new_sources_map = Self::build_sources_map(&self.cfg).await?;
+
+        // Replace the sources map atomically
+        {
+            let mut sources_guard = self.sources.write().await;
+            *sources_guard = new_sources_map;
+        }
+
+        tracing::info!("sources reloaded successfully");
+        Ok(())
     }
 
     pub async fn populate(&self) -> Result<()> {
@@ -75,7 +100,7 @@ impl FrameScheduler {
     /// Execute one update cycle for a specific frame id.
     async fn run_frame_update(
         cfg: &config::SharedConfig,
-        sources_map: &HashMap<String, Box<dyn sources::ImageSource>>,
+        sources_map: &SharedSourcesMap,
         frame_id: &str,
         ignore_pause: bool,
     ) -> Result<()> {
@@ -93,15 +118,20 @@ impl FrameScheduler {
             .unwrap_or_else(|_| "<err>".into());
         tracing::debug!(frame = %frame_id, cwd = %cwd, sources = ?f.source_ids, orientation = ?f.orientation, "starting frame update cycle");
         let desired = f.orientation.unwrap_or_default();
+
         // Log stats for each configured source to diagnose empty selections.
-        for sid in &f.source_ids {
-            if let Some(src) = sources_map.get(sid) {
-                let st = src.stats();
-                tracing::debug!(frame=%frame_id, source=%sid, total=st.total, landscape=st.landscape, portrait=st.portrait, "source stats");
-            } else {
-                tracing::warn!(frame=%frame_id, source=%sid, "configured source id not found in scheduler map");
+        {
+            let sources_guard = sources_map.read().await;
+            for sid in &f.source_ids {
+                if let Some(src) = sources_guard.get(sid) {
+                    let st = src.stats();
+                    tracing::debug!(frame=%frame_id, source=%sid, total=st.total, landscape=st.landscape, portrait=st.portrait, "source stats");
+                } else {
+                    tracing::warn!(frame=%frame_id, source=%sid, "configured source id not found in scheduler map");
+                }
             }
         }
+
         let mut selected: Option<sources::ImageMeta> = None;
 
         // Shuffle configured sources before probing to select a source at random
@@ -110,8 +140,16 @@ impl FrameScheduler {
             let mut rng = rng();
             sids.shuffle(&mut rng);
         }
+
+        // Process each source ID sequentially
         for sid in &sids {
-            if let Some(src) = sources_map.get(sid)
+            // Get a clone of the Arc for this specific source
+            let source_arc = {
+                let sources_guard = sources_map.read().await;
+                sources_guard.get(sid).cloned()
+            };
+
+            if let Some(src) = source_arc
                 && let Ok(Some(meta)) = src.next(desired).await
             {
                 selected = Some(meta);
@@ -154,7 +192,12 @@ impl FrameScheduler {
     }
 
     pub async fn refresh_source(&self, source_id: &str) -> Result<()> {
-        if let Some(src) = self.sources.get(source_id)
+        let source_arc = {
+            let sources_guard = self.sources.read().await;
+            sources_guard.get(source_id).cloned()
+        };
+
+        if let Some(src) = source_arc
             && let Some(im) =
                 (src.as_ref() as &dyn std::any::Any).downcast_ref::<sources::ImmichImageSource>()
         {
@@ -171,13 +214,18 @@ impl FrameScheduler {
             return Ok(());
         };
         let desired = f.orientation.unwrap_or_default();
+
         // Log stats to help diagnose empty selections.
-        for sid in &f.source_ids {
-            if let Some(src) = self.sources.get(sid) {
-                let st = src.stats();
-                tracing::debug!(frame=%frame_id, source=%sid, total=st.total, landscape=st.landscape, portrait=st.portrait, "source stats (prime)");
+        {
+            let sources_guard = self.sources.read().await;
+            for sid in &f.source_ids {
+                if let Some(src) = sources_guard.get(sid) {
+                    let st = src.stats();
+                    tracing::debug!(frame=%frame_id, source=%sid, total=st.total, landscape=st.landscape, portrait=st.portrait, "source stats (prime)");
+                }
             }
         }
+
         let mut selected: Option<sources::ImageMeta> = None;
         // Shuffle configured sources before probing to select a source at random
         let mut sids: Vec<String> = f.source_ids.to_vec();
@@ -185,8 +233,15 @@ impl FrameScheduler {
             let mut rng = rng();
             sids.shuffle(&mut rng);
         }
+
         for sid in &sids {
-            if let Some(src) = self.sources.get(sid)
+            // Get a clone of the Arc for this specific source
+            let source_arc = {
+                let sources_guard = self.sources.read().await;
+                sources_guard.get(sid).cloned()
+            };
+
+            if let Some(src) = source_arc
                 && let Ok(Some(meta)) = src.next(desired).await
             {
                 selected = Some(meta);
