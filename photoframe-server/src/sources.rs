@@ -327,7 +327,11 @@ impl ImmichImageSource {
                 }
             }
         }
-        *self.entries.write() = new_entries;
+
+        // Only update last_list timestamp on successful completion of all searches
+        *self.entries.write() = all_entries;
+        self.last_list
+            .store(now, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 }
