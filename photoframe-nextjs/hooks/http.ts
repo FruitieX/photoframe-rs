@@ -37,7 +37,8 @@ export interface ImmichSourceCfg {
   api_key?: string;
   order?: OrderKind;
   // Arbitrary filters passed to searchAssets endpoint (albumIds, personIds, etc)
-  filters?: Record<string, unknown>;
+  // Can be either a single filter object or an array of filter objects
+  filters?: Record<string, unknown> | Record<string, unknown>[];
 }
 export interface SourceConfig {
   kind: SourceKind;
@@ -65,7 +66,7 @@ export function useSetImmichCredentials(apiBase: string, sourceId: string) {
 // (Future) mutation to persist Immich filters could be added here once backend endpoint exists.
 export function useSetImmichFilters(apiBase: string, sourceId: string) {
   const qc = useQueryClient();
-  return useMutation<void, Error, { filters: Record<string, unknown> }>({
+  return useMutation<void, Error, { filters: Record<string, unknown> | Record<string, unknown>[] }>({
     mutationFn: async (payload) => {
       const res = await fetch(`${apiBase}/sources/${sourceId}/immich/filters`, {
         method: "POST",

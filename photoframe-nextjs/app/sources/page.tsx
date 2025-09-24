@@ -76,34 +76,46 @@ function ImmichInlineOnboard({
   const [apiKey, setApiKey] = React.useState("");
   const [showKey, setShowKey] = React.useState(false);
   const [filtersText, setFiltersText] = React.useState(
-    '{\n  "albumIds": [],\n  "personIds": []\n}',
+    '[\n  {\n    "albumIds": ["album1"]\n  },\n  {\n    "personIds": ["person1"]\n  }\n]',
   );
   const [filtersError, setFiltersError] = React.useState<string | null>(null);
 
   // Prefill from config when it loads/changes
+  const [hasInitialized, setHasInitialized] = React.useState(false);
+  
   React.useEffect(() => {
-    if (current) {
-      if (current.base_url && current.base_url !== baseUrl)
-        setBaseUrl(current.base_url);
-      if (current.api_key && current.api_key !== apiKey)
-        setApiKey(current.api_key);
+    if (current && !hasInitialized) {
+      if (current.base_url) setBaseUrl(current.base_url);
+      if (current.api_key) setApiKey(current.api_key);
       if (current.filters) {
         try {
           const pretty = JSON.stringify(current.filters, null, 2);
-          if (pretty !== filtersText) setFiltersText(pretty);
+          setFiltersText(pretty);
         } catch {}
       }
+      setHasInitialized(true);
     }
-  }, [current, baseUrl, apiKey, filtersText]);
+  }, [current, hasInitialized]);
 
   const validate = React.useCallback((txt: string) => {
     try {
       const parsed = JSON.parse(txt);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        setFiltersError(null);
-        return parsed as Record<string, unknown>;
+      if (parsed && typeof parsed === "object") {
+        if (Array.isArray(parsed)) {
+          // Validate that all array elements are objects
+          if (parsed.every(item => item && typeof item === "object" && !Array.isArray(item))) {
+            setFiltersError(null);
+            return parsed as Record<string, unknown>[];
+          }
+          setFiltersError("Array must contain only objects");
+          return null;
+        } else {
+          // Single object
+          setFiltersError(null);
+          return parsed as Record<string, unknown>;
+        }
       }
-      setFiltersError("Must be a JSON object");
+      setFiltersError("Must be a JSON object or array of objects");
       return null;
     } catch (e) {
       setFiltersError("Invalid JSON");
@@ -164,8 +176,8 @@ function ImmichInlineOnboard({
       </div>
       <div className="flex flex-col gap-2">
         <Typography variant="body2" className="opacity-70">
-          Search Filters (JSON for Immich /api/search/asset). type=["IMAGE"] is
-          always enforced server-side.
+          Search Filters (JSON for Immich /api/search/asset). Can be a single object or array of objects.
+          Multiple filters are combined (OR logic). type=["IMAGE"] is always enforced server-side.
         </Typography>
         <TextField
           size="small"
@@ -176,9 +188,9 @@ function ImmichInlineOnboard({
             validate(e.target.value);
           }}
           multiline
-          minRows={3}
+          minRows={5}
           error={!!filtersError}
-          helperText={filtersError || "albumIds, personIds, dateAfter, etc."}
+          helperText={filtersError || "Single object: {...} or Array: [{...}, {...}] with albumIds, personIds, etc."}
         />
         <div className="flex gap-2">
           <Button

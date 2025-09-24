@@ -225,105 +225,125 @@ impl ImmichImageSource {
         let last = self.last_list.load(std::sync::atomic::Ordering::Relaxed);
         if last == 0 || now.saturating_sub(last) > IMMICH_REFRESH_INTERVAL_SECS {
             should = true;
-            self.last_list
-                .store(now, std::sync::atomic::Ordering::Relaxed);
         }
         if !should {
             return Ok(());
         }
+
         let client = reqwest::Client::new();
         let base = self.cfg.base_url.clone().unwrap();
         let url = format!("{}/api/search/metadata", base.trim_end_matches('/'));
 
-        // Build filters body: merge user-provided filters (object) + enforced type=IMAGE.
-        let mut root = serde_json::Map::new();
-        // Provided filters may be arbitrary JSON. We expect an object; if not, skip.
-        if let Some(obj) = self.cfg.filters.as_ref().and_then(|v| v.as_object()) {
-            for (k, v) in obj.iter() {
-                root.insert(k.clone(), v.clone());
+        // Handle multiple filters by performing multiple searches and deduplicating results
+        let empty_filters = vec![];
+        let filters_list = self.cfg.filters.as_ref().unwrap_or(&empty_filters);
+
+        let mut all_entries = Vec::new();
+        let mut seen_ids = std::collections::HashSet::new();
+
+        // If no filters are configured, perform a single search with just type=IMAGE
+        let searches = if filters_list.is_empty() {
+            vec![serde_json::Value::Object(serde_json::Map::new())]
+        } else {
+            filters_list.clone()
+        };
+
+        for filter in searches {
+            // Build filters body: merge user-provided filters (object) + enforced type=IMAGE.
+            let mut root = serde_json::Map::new();
+
+            // Provided filters may be arbitrary JSON. We expect an object; if not, skip.
+            if let Some(obj) = filter.as_object() {
+                for (k, v) in obj.iter() {
+                    root.insert(k.clone(), v.clone());
+                }
             }
-        }
-        // Always set type filter to IMAGE (Immich expects a single string for asset type in searchAssets request body).
-        root.insert(
-            "type".to_string(),
-            serde_json::Value::String("IMAGE".to_string()),
-        );
 
-        // Pagination defaults: page + size (docs show page>=1, size<=1000)
-        if !root.contains_key("page") {
-            root.insert("page".to_string(), serde_json::Value::Number(1.into()));
-        }
-        if !root.contains_key("size") {
-            root.insert("size".to_string(), serde_json::Value::Number(1000.into()));
-        }
+            // Always set type filter to IMAGE (Immich expects a single string for asset type in searchAssets request body).
+            root.insert(
+                "type".to_string(),
+                serde_json::Value::String("IMAGE".to_string()),
+            );
 
-        // We rely on EXIF width/height to determine orientation; ask Immich to include exif data.
-        if !root.contains_key("withExif") {
-            root.insert("withExif".to_string(), serde_json::Value::Bool(true));
-        }
+            // Pagination defaults: page + size (docs show page>=1, size<=1000)
+            if !root.contains_key("page") {
+                root.insert("page".to_string(), serde_json::Value::Number(1.into()));
+            }
+            if !root.contains_key("size") {
+                root.insert("size".to_string(), serde_json::Value::Number(1000.into()));
+            }
 
-        let body = serde_json::Value::Object(root);
+            // We rely on EXIF width/height to determine orientation; ask Immich to include exif data.
+            if !root.contains_key("withExif") {
+                root.insert("withExif".to_string(), serde_json::Value::Bool(true));
+            }
 
-        let resp = client
-            .post(&url)
-            .header("x-api-key", self.cfg.api_key.clone().unwrap_or_default())
-            .json(&body)
-            .send()
-            .await
-            .context("immich search assets")?;
+            let body = serde_json::Value::Object(root);
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            tracing::warn!(%status, body=%text, "immich search assets failed");
-            return Ok(());
-        }
-        let mut new_entries = Vec::new();
-        if let Ok(items) = resp.json::<serde_json::Value>().await {
-            // Endpoint returns { assets: [ ... ] } (per docs). Accept raw array fallback.
-            let maybe_arr = items
-                .get("assets")
-                .and_then(|v| v.get("items"))
-                .and_then(|v| v.as_array());
-            if let Some(arr) = maybe_arr {
-                for item in arr {
-                    let exif = item.get("exifInfo");
-                    let raw_w = exif
-                        .and_then(|m| m.get("exifImageWidth"))
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32;
-                    let raw_h = exif
-                        .and_then(|m| m.get("exifImageHeight"))
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32;
-                    // Some cameras store dimensions un-rotated and rely on EXIF orientation (1,3,6,8) for display.
-                    // If orientation indicates a 90/270 degree rotation (6 or 8) we logically swap width/height.
-                    let exif_orientation = exif
-                        .and_then(|m| m.get("orientation"))
-                        .and_then(|v| {
-                            if let Some(n) = v.as_u64() {
-                                Some(n)
-                            } else if let Some(s) = v.as_str() {
-                                s.trim().parse::<u64>().ok()
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or(1);
-                    let (w, h) = match exif_orientation {
-                        6 | 8 => (raw_h, raw_w), // 90 / 270 degree rotation => swap
-                        _ => (raw_w, raw_h),
-                    };
-                    let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                    if id.is_empty() {
-                        continue;
+            let resp = client
+                .post(&url)
+                .header("x-api-key", self.cfg.api_key.clone().unwrap_or_default())
+                .json(&body)
+                .send()
+                .await
+                .context("immich search assets")?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                tracing::warn!(%status, body=%text, "immich search assets failed for filter");
+                continue; // Try next filter instead of failing entirely
+            }
+
+            if let Ok(items) = resp.json::<serde_json::Value>().await {
+                // Endpoint returns { assets: [ ... ] } (per docs). Accept raw array fallback.
+                let maybe_arr = items
+                    .get("assets")
+                    .and_then(|v| v.get("items"))
+                    .and_then(|v| v.as_array());
+                if let Some(arr) = maybe_arr {
+                    for item in arr {
+                        let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        if id.is_empty() || seen_ids.contains(id) {
+                            continue; // Skip duplicates
+                        }
+                        seen_ids.insert(id.to_string());
+
+                        let exif = item.get("exifInfo");
+                        let raw_w = exif
+                            .and_then(|m| m.get("exifImageWidth"))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as u32;
+                        let raw_h = exif
+                            .and_then(|m| m.get("exifImageHeight"))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as u32;
+                        // Some cameras store dimensions un-rotated and rely on EXIF orientation (1,3,6,8) for display.
+                        // If orientation indicates a 90/270 degree rotation (6 or 8) we logically swap width/height.
+                        let exif_orientation = exif
+                            .and_then(|m| m.get("orientation"))
+                            .and_then(|v| {
+                                if let Some(n) = v.as_u64() {
+                                    Some(n)
+                                } else if let Some(s) = v.as_str() {
+                                    s.trim().parse::<u64>().ok()
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(1);
+                        let (w, h) = match exif_orientation {
+                            6 | 8 => (raw_h, raw_w), // 90 / 270 degree rotation => swap
+                            _ => (raw_w, raw_h),
+                        };
+
+                        let orient = if w > 0 && h > 0 {
+                            Orientation::from_dims(w, h)
+                        } else {
+                            Orientation::Landscape
+                        };
+                        all_entries.push((id.to_string(), orient));
                     }
-                    let orient = if w > 0 && h > 0 {
-                        Orientation::from_dims(w, h)
-                    } else {
-                        Orientation::Landscape
-                    };
-                    new_entries.push((id.to_string(), orient));
                 }
             }
         }

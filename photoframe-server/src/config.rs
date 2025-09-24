@@ -171,7 +171,44 @@ pub struct ImmichSource {
     pub order: Option<OrderKind>,
     /// Arbitrary search filters passed directly to Immich `searchAssets` endpoint body.
     /// This allows specifying albumIds, personIds, etc. Always merged with type=IMAGE.
-    pub filters: Option<serde_json::Value>,
+    /// Can be either a single filter object or an array of filter objects that get combined.
+    #[serde(with = "filters_serde")]
+    pub filters: Option<Vec<serde_json::Value>>,
+}
+
+mod filters_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use serde_json::Value;
+
+    pub fn serialize<S>(filters: &Option<Vec<Value>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match filters {
+            None => Option::<Value>::None.serialize(serializer),
+            Some(vec) => {
+                if vec.len() == 1 {
+                    // Serialize as single object for backwards compatibility
+                    vec[0].serialize(serializer)
+                } else {
+                    // Serialize as array
+                    vec.serialize(serializer)
+                }
+            }
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<Value>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Option::<Value>::deserialize(deserializer)?;
+        match value {
+            None => Ok(None),
+            Some(Value::Array(arr)) => Ok(Some(arr)),
+            Some(obj) => Ok(Some(vec![obj])),
+        }
+    }
 }
 
 /// Internal manager state kept behind an `Arc<RwLock<_>>`.
@@ -423,14 +460,14 @@ impl ConfigManager {
         Ok(())
     }
 
-    /// Update Immich source filters JSON object (replaces previous value).
+    /// Update Immich source filters JSON object or array (replaces previous value).
     pub async fn set_immich_filters(
         cfg: &SharedConfig,
         source_id: &str,
         filters: &serde_json::Value,
     ) -> Result<()> {
-        if !filters.is_object() {
-            bail!("filters must be a JSON object");
+        if !filters.is_object() && !filters.is_array() {
+            bail!("filters must be a JSON object or array");
         }
         let mut guard = cfg.write().await;
         let sources_tbl = guard.doc["sources"]
