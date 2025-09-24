@@ -1,7 +1,7 @@
 "use client";
 
 import "./globals.css";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import CssBaseline from "@mui/material/CssBaseline";
 import { ThemeProvider } from "@mui/material/styles";
@@ -169,6 +169,11 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  }, []);
   return (
     <html lang="en" className="h-full">
       <body className="h-full">
