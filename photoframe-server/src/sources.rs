@@ -250,100 +250,121 @@ impl ImmichImageSource {
 
         for filter in searches {
             // Build filters body: merge user-provided filters (object) + enforced type=IMAGE.
-            let mut root = serde_json::Map::new();
-
-            // Provided filters may be arbitrary JSON. We expect an object; if not, skip.
+            // We'll loop over pages and update the page field each iteration.
+            let mut base = serde_json::Map::new();
             if let Some(obj) = filter.as_object() {
                 for (k, v) in obj.iter() {
-                    root.insert(k.clone(), v.clone());
+                    base.insert(k.clone(), v.clone());
                 }
             }
-
-            // Always set type filter to IMAGE (Immich expects a single string for asset type in searchAssets request body).
-            root.insert(
+            base.insert(
                 "type".to_string(),
                 serde_json::Value::String("IMAGE".to_string()),
             );
 
-            // Pagination defaults: page + size (docs show page>=1, size<=1000)
-            if !root.contains_key("page") {
-                root.insert("page".to_string(), serde_json::Value::Number(1.into()));
-            }
-            if !root.contains_key("size") {
-                root.insert("size".to_string(), serde_json::Value::Number(1000.into()));
-            }
-
-            // We rely on EXIF width/height to determine orientation; ask Immich to include exif data.
-            if !root.contains_key("withExif") {
-                root.insert("withExif".to_string(), serde_json::Value::Bool(true));
+            // Defaults
+            // Use a generic page token to support cursor-based pagination (nextPage: String|null).
+            // If the filter specified an explicit page, start from there; otherwise omit 'page' on first call.
+            let mut page_token: Option<serde_json::Value> = base.get("page").cloned();
+            let size: u32 = base.get("size").and_then(|v| v.as_u64()).unwrap_or(1000) as u32;
+            if !base.contains_key("withExif") {
+                base.insert("withExif".to_string(), serde_json::Value::Bool(true));
             }
 
-            let body = serde_json::Value::Object(root);
+            let max_pages = self.cfg.max_pages.unwrap_or(1).max(1);
+            let mut fetched_pages: u32 = 0;
+            loop {
+                if fetched_pages >= max_pages {
+                    break;
+                }
+                let mut body_map = base.clone();
+                // Only include 'page' when we have a token; otherwise let API start from first page.
+                if let Some(tok) = &page_token {
+                    body_map.insert("page".to_string(), tok.clone());
+                } else {
+                    body_map.remove("page");
+                }
+                body_map.insert("size".to_string(), serde_json::Value::Number(size.into()));
+                let body = serde_json::Value::Object(body_map);
 
-            let resp = client
-                .post(&url)
-                .header("x-api-key", self.cfg.api_key.clone().unwrap_or_default())
-                .json(&body)
-                .send()
-                .await
-                .context("immich search assets")?;
+                let resp = client
+                    .post(&url)
+                    .header("x-api-key", self.cfg.api_key.clone().unwrap_or_default())
+                    .json(&body)
+                    .send()
+                    .await
+                    .context("immich search assets")?;
 
-            if !resp.status().is_success() {
-                let status = resp.status();
-                let text = resp.text().await.unwrap_or_default();
-                tracing::warn!(%status, body=%text, "immich search assets failed for filter");
-                continue; // Try next filter instead of failing entirely
-            }
+                if !resp.status().is_success() {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    tracing::warn!(%status, body=%text, "immich search assets failed for filter");
+                    break; // stop paging for this filter
+                }
 
-            if let Ok(items) = resp.json::<serde_json::Value>().await {
-                // Endpoint returns { assets: [ ... ] } (per docs). Accept raw array fallback.
-                let maybe_arr = items
-                    .get("assets")
+                let items = resp.json::<serde_json::Value>().await.unwrap_or_default();
+                let assets_obj = items.get("assets");
+                let arr = assets_obj
                     .and_then(|v| v.get("items"))
-                    .and_then(|v| v.as_array());
-                if let Some(arr) = maybe_arr {
-                    for item in arr {
-                        let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                        if id.is_empty() || seen_ids.contains(id) {
-                            continue; // Skip duplicates
-                        }
-                        seen_ids.insert(id.to_string());
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_else(|| items.as_array().cloned().unwrap_or_default());
 
-                        let exif = item.get("exifInfo");
-                        let raw_w = exif
-                            .and_then(|m| m.get("exifImageWidth"))
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0) as u32;
-                        let raw_h = exif
-                            .and_then(|m| m.get("exifImageHeight"))
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0) as u32;
-                        // Some cameras store dimensions un-rotated and rely on EXIF orientation (1,3,6,8) for display.
-                        // If orientation indicates a 90/270 degree rotation (6 or 8) we logically swap width/height.
-                        let exif_orientation = exif
-                            .and_then(|m| m.get("orientation"))
-                            .and_then(|v| {
-                                if let Some(n) = v.as_u64() {
-                                    Some(n)
-                                } else if let Some(s) = v.as_str() {
-                                    s.trim().parse::<u64>().ok()
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or(1);
-                        let (w, h) = match exif_orientation {
-                            6 | 8 => (raw_h, raw_w), // 90 / 270 degree rotation => swap
-                            _ => (raw_w, raw_h),
-                        };
+                if arr.is_empty() {
+                    break; // no more pages
+                }
 
-                        let orient = if w > 0 && h > 0 {
-                            Orientation::from_dims(w, h)
-                        } else {
-                            Orientation::Landscape
-                        };
-                        all_entries.push((id.to_string(), orient));
+                for item in &arr {
+                    let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                    if id.is_empty() || seen_ids.contains(id) {
+                        continue; // Skip duplicates
                     }
+                    seen_ids.insert(id.to_string());
+
+                    let exif = item.get("exifInfo");
+                    let raw_w = exif
+                        .and_then(|m| m.get("exifImageWidth"))
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+                    let raw_h = exif
+                        .and_then(|m| m.get("exifImageHeight"))
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+                    let exif_orientation = exif
+                        .and_then(|m| m.get("orientation"))
+                        .and_then(|v| {
+                            if let Some(n) = v.as_u64() {
+                                Some(n)
+                            } else if let Some(s) = v.as_str() {
+                                s.trim().parse::<u64>().ok()
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(1);
+                    let (w, h) = match exif_orientation {
+                        6 | 8 => (raw_h, raw_w),
+                        _ => (raw_w, raw_h),
+                    };
+
+                    let orient = if w > 0 && h > 0 {
+                        Orientation::from_dims(w, h)
+                    } else {
+                        Orientation::Landscape
+                    };
+                    all_entries.push((id.to_string(), orient));
+                }
+                fetched_pages += 1;
+                // Advance using nextPage token when available; stop if null/missing.
+                let next_page_val = assets_obj
+                    .and_then(|v| v.get("nextPage"))
+                    .cloned()
+                    .or_else(|| items.get("nextPage").cloned());
+                match next_page_val {
+                    Some(v) if !v.is_null() => {
+                        page_token = Some(v);
+                    }
+                    _ => break,
                 }
             }
         }

@@ -148,6 +148,9 @@ kind = "immich"
 base_url = "http://immich.local:2283"
 api_key = "YOUR_IMMICH_API_KEY"
 order = "random"
+# How many pages to fetch per filter (default 1). Increase to crawl more than 1000 assets.
+# Stops early if a page returns no items.
+max_pages = 3
 filters = { personIds = [
 	"ff59fc83-9f62-4455-8687-6caa4884fb0a",
 	"8d34adbb-bde8-4158-a1b9-fe96375e5e82",

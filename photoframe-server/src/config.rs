@@ -251,6 +251,10 @@ pub struct ImmichSource {
     pub base_url: Option<String>,
     pub api_key: Option<String>,
     pub order: Option<OrderKind>,
+    /// Maximum number of pages to fetch per filter when listing assets.
+    /// Defaults to 1 (backwards compatible behavior). Each page defaults to size=1000 unless
+    /// overridden in filters. Listing stops earlier if the API indicates no more items.
+    pub max_pages: Option<u32>,
     /// Arbitrary search filters passed directly to Immich `searchAssets` endpoint body.
     /// This allows specifying albumIds, personIds, etc. Always merged with type=IMAGE.
     /// Can be either a single filter object or an array of filter objects that get combined.
