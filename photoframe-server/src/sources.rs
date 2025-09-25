@@ -2,6 +2,7 @@ use crate::config::{FilesystemSource, ImmichSource, OrderKind, Orientation, Sour
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use glob::glob;
+use image::ImageDecoder;
 use rand::seq::{IndexedRandom, SliceRandom};
 use rand::{Rng, rng};
 use std::any::Any;
@@ -21,6 +22,10 @@ pub enum SourceData {
 pub struct ImageMeta {
     pub data: SourceData,
     pub orientation: Orientation,
+    /// Date taken extracted from EXIF or other metadata sources
+    pub date_taken: Option<chrono::DateTime<chrono::Utc>>,
+    /// Full EXIF blob from original image (for preserving in base PNG)
+    pub exif_blob: Option<Vec<u8>>,
     #[allow(dead_code)]
     pub id: Option<String>,
 }
@@ -109,6 +114,8 @@ impl FilesystemImageSource {
                         entries.push(ImageMeta {
                             data: SourceData::Path(path.clone()),
                             orientation: orient,
+                            date_taken: None, // Filesystem source doesn't extract EXIF during listing
+                            exif_blob: None,  // Will be extracted when loading the file
                             id: Some(path.to_string_lossy().to_string()),
                         });
                     }
@@ -431,6 +438,8 @@ impl ImageSource for ImmichImageSource {
             .map(|(id, o)| ImageMeta {
                 data: SourceData::Path(PathBuf::from("remote")),
                 orientation: *o,
+                date_taken: None, // Stats don't need actual date data
+                exif_blob: None,  // Stats don't need EXIF data
                 id: Some(id.clone()),
             })
             .collect();
@@ -442,26 +451,83 @@ impl ImmichImageSource {
     async fn fetch_asset(&self, asset_id: &str, orient: Orientation) -> Result<Option<ImageMeta>> {
         let client = reqwest::Client::new();
         let base = self.cfg.base_url.clone().unwrap_or_default();
-        let url = format!(
+
+        // Fetch thumbnail for image data
+        let thumb_url = format!(
             "{}/api/assets/{}/thumbnail?size=preview",
             base.trim_end_matches('/'),
             asset_id
         );
-        if let Ok(resp) = client
-            .get(&url)
+        let thumb_resp = client
+            .get(&thumb_url)
             .header("x-api-key", self.cfg.api_key.clone().unwrap_or_default())
             .send()
-            .await
-            && resp.status().is_success()
-            && let Ok(bytes) = resp.bytes().await
-        {
-            return Ok(Some(ImageMeta {
-                data: SourceData::Bytes(bytes.to_vec()),
-                orientation: orient,
-                id: Some(asset_id.to_string()),
-            }));
+            .await?;
+
+        if !thumb_resp.status().is_success() {
+            return Ok(None);
         }
-        Ok(None)
+
+        let thumb_bytes = thumb_resp.bytes().await?;
+
+        // Extract EXIF metadata from original asset (memory-efficient)
+        let (date_taken, exif_blob) = self
+            .extract_exif_metadata(asset_id)
+            .await
+            .unwrap_or((None, None));
+
+        Ok(Some(ImageMeta {
+            data: SourceData::Bytes(thumb_bytes.to_vec()),
+            orientation: orient,
+            date_taken,
+            exif_blob,
+            id: Some(asset_id.to_string()),
+        }))
+    }
+
+    /// Memory-efficiently extract EXIF metadata from original asset without loading entire image
+    async fn extract_exif_metadata(
+        &self,
+        asset_id: &str,
+    ) -> Result<(Option<chrono::DateTime<chrono::Utc>>, Option<Vec<u8>>)> {
+        let client = reqwest::Client::new();
+        let base = self.cfg.base_url.clone().unwrap_or_default();
+        let original_url = format!(
+            "{}/api/assets/{}/original",
+            base.trim_end_matches('/'),
+            asset_id
+        );
+
+        let resp = client
+            .get(&original_url)
+            .header("x-api-key", self.cfg.api_key.clone().unwrap_or_default())
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Ok((None, None));
+        }
+
+        // Stream response and extract EXIF without loading entire image
+        use std::io::Cursor;
+        let bytes = resp.bytes().await?;
+        let cursor = Cursor::new(&bytes[..]);
+
+        // Use image crate's ImageReader to extract EXIF metadata efficiently
+        let reader = image::ImageReader::new(cursor).with_guessed_format()?;
+        let mut decoder = reader.into_decoder()?;
+
+        // Extract EXIF metadata without decoding the image pixels
+        if let Some(exif_bytes) = decoder.exif_metadata()? {
+            // Parse EXIF to get DateTimeOriginal while preserving the full blob
+            let exif_vec = exif_bytes.to_vec();
+            let date_taken = crate::frame::extract_exif_date_taken_from_blob(&exif_vec)
+                .ok()
+                .flatten();
+            return Ok((date_taken, Some(exif_vec)));
+        }
+
+        Ok((None, None))
     }
 }
 

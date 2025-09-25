@@ -62,7 +62,7 @@ pub async fn load_and_store_base(
     _frame: &PhotoFrame,
     limits: Option<&ImageLimits>,
 ) -> Result<DynamicImage> {
-    let (mut img, orientation_tag, date_taken, exif_blob): LoadResult = match &meta.data {
+    let (mut img, orientation_tag, mut date_taken, mut exif_blob): LoadResult = match &meta.data {
         SourceData::Path(p) => {
             let bytes = fs::read(p).await?;
             let tag = extract_exif_orientation(&bytes).ok().flatten();
@@ -77,6 +77,15 @@ pub async fn load_and_store_base(
             (image::load_from_memory(b)?, tag, date, exif)
         }
     }; // original full-resolution
+
+    // Prefer EXIF metadata from source (e.g., Immich original asset) over thumbnail EXIF
+    if let Some(source_date) = meta.date_taken {
+        date_taken = Some(source_date);
+    }
+    if let Some(source_exif) = &meta.exif_blob {
+        exif_blob = Some(source_exif.clone());
+    }
+
     if let Some(orient) = orientation_tag {
         img = apply_exif_orientation(img, orient);
     }
@@ -92,6 +101,76 @@ fn extract_exif_orientation(bytes: &[u8]) -> Result<Option<Orientation>> {
     let reader = ImageReader::new(cursor).with_guessed_format()?;
     let mut decoder = reader.into_decoder()?;
     Ok(decoder.orientation().ok())
+}
+
+/// Extract EXIF DateTimeOriginal/DateTime from raw EXIF blob.
+pub fn extract_exif_date_taken_from_blob(
+    exif_bytes: &[u8],
+) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
+    let exif = exif::Reader::new().read_raw(exif_bytes.to_vec())?;
+
+    // Helpers to retrieve ASCII values and to search all IFDs if PRIMARY is missing
+    let get_ascii = |tag: exif::Tag| -> Option<String> {
+        exif.get_field(tag, exif::In::PRIMARY)
+            .or_else(|| exif.fields().find(|f| f.tag == tag))
+            .and_then(|f| match &f.value {
+                exif::Value::Ascii(v) if !v.is_empty() => std::str::from_utf8(&v[0])
+                    .ok()
+                    .map(|s| s.trim().to_string()),
+                _ => None,
+            })
+    };
+
+    // Build a base timestamp string from tags
+    let mut base =
+        match get_ascii(exif::Tag::DateTimeOriginal).or_else(|| get_ascii(exif::Tag::DateTime)) {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+    // Append subseconds if present
+    if let Some(sub) = get_ascii(exif::Tag::SubSecTimeOriginal)
+        .or_else(|| get_ascii(exif::Tag::SubSecTime))
+        .filter(|s| !s.is_empty())
+    {
+        base.push('.');
+        base.push_str(sub.trim());
+    }
+    // Append normalized timezone offset if present
+    if let Some(off_raw) =
+        get_ascii(exif::Tag::OffsetTimeOriginal).or_else(|| get_ascii(exif::Tag::OffsetTime))
+    {
+        let mut off = off_raw.trim().replace(' ', "");
+        // Normalize +HHMM -> +HH:MM
+        if off.len() == 5
+            && (off.starts_with('+') || off.starts_with('-'))
+            && off.chars().skip(1).all(|c| c.is_ascii_digit())
+        {
+            off = format!("{}{}:{}", &off[0..2], &off[2..4], &off[4..5]);
+        }
+        // If already like +HH:MM, keep as-is
+        if !off.is_empty() {
+            base.push_str(off.as_str());
+        }
+    }
+
+    // Try parsing with several formats
+    if let Ok(dt) = chrono::DateTime::parse_from_str(&base, "%Y:%m:%d %H:%M:%S%.f%:z") {
+        return Ok(Some(dt.with_timezone(&chrono::Utc)));
+    }
+    if let Ok(dt) = chrono::DateTime::parse_from_str(&base, "%Y:%m:%d %H:%M:%S%:z") {
+        return Ok(Some(dt.with_timezone(&chrono::Utc)));
+    }
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&base, "%Y:%m:%d %H:%M:%S%.f") {
+        // Interpret as local time if no offset is present, then convert to UTC for storage
+        let local = chrono::Local.from_local_datetime(&naive).earliest();
+        return Ok(local.map(|ldt| ldt.with_timezone(&chrono::Utc)));
+    }
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&base, "%Y:%m:%d %H:%M:%S") {
+        let local = chrono::Local.from_local_datetime(&naive).earliest();
+        return Ok(local.map(|ldt| ldt.with_timezone(&chrono::Utc)));
+    }
+    Ok(None)
 }
 
 /// Extract EXIF DateTimeOriginal/DateTime via image crate decoder.
