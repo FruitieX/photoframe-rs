@@ -4,7 +4,7 @@ import "./globals.css";
 import { ReactNode, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import CssBaseline from "@mui/material/CssBaseline";
-import { ThemeProvider } from "@mui/material/styles";
+import { ThemeProvider, Theme } from "@mui/material/styles";
 import { theme } from "../theme";
 import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
@@ -32,7 +32,7 @@ const drawerWidth = 220;
 function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const isMdDn = useMediaQuery((theme: any) => theme.breakpoints.down("md"));
+  const isMdDn = useMediaQuery((theme: Theme) => theme.breakpoints.down("md"));
 
   const handleDrawerToggle = () => {
     setMobileOpen((o) => !o);

@@ -117,7 +117,7 @@ function ImmichInlineOnboard({
       }
       setFiltersError("Must be a JSON object or array of objects");
       return null;
-    } catch (e) {
+    } catch {
       setFiltersError("Invalid JSON");
       return null;
     }
@@ -177,7 +177,7 @@ function ImmichInlineOnboard({
       <div className="flex flex-col gap-2">
         <Typography variant="body2" className="opacity-70">
           Search Filters (JSON for Immich /api/search/asset). Can be a single object or array of objects.
-          Multiple filters are combined (OR logic). type=["IMAGE"] is always enforced server-side.
+          Multiple filters are combined (OR logic). type=[&quot;IMAGE&quot;] is always enforced server-side.
         </Typography>
         <TextField
           size="small"
