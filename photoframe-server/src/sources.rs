@@ -255,7 +255,9 @@ impl ImmichImageSource {
             filters_list.clone()
         };
 
-        for filter in searches {
+        for (filter_idx, filter) in searches.iter().enumerate() {
+            tracing::debug!(?filter, filter_idx, "Starting Immich search for filter");
+
             // Build filters body: merge user-provided filters (object) + enforced type=IMAGE.
             // We'll loop over pages and update the page field each iteration.
             let mut base = serde_json::Map::new();
@@ -280,8 +282,16 @@ impl ImmichImageSource {
 
             let max_pages = self.cfg.max_pages.unwrap_or(1).max(1);
             let mut fetched_pages: u32 = 0;
+            let mut total_assets_for_filter = 0;
+
             loop {
                 if fetched_pages >= max_pages {
+                    tracing::trace!(
+                        filter_idx,
+                        fetched_pages,
+                        max_pages,
+                        "Reached maximum pages limit for filter"
+                    );
                     break;
                 }
                 let mut body_map = base.clone();
@@ -293,6 +303,15 @@ impl ImmichImageSource {
                 }
                 body_map.insert("size".to_string(), serde_json::Value::Number(size.into()));
                 let body = serde_json::Value::Object(body_map);
+
+                tracing::trace!(
+                    filter_idx,
+                    page_num = fetched_pages + 1,
+                    ?page_token,
+                    size,
+                    total_assets_found = all_entries.len(),
+                    "Fetching Immich assets page"
+                );
 
                 let resp = client
                     .post(&url)
@@ -317,9 +336,23 @@ impl ImmichImageSource {
                     .cloned()
                     .unwrap_or_else(|| items.as_array().cloned().unwrap_or_default());
 
+                tracing::trace!(
+                    filter_idx,
+                    page_num = fetched_pages + 1,
+                    assets_in_page = arr.len(),
+                    "Received Immich assets page"
+                );
+
                 if arr.is_empty() {
+                    tracing::trace!(
+                        filter_idx,
+                        page_num = fetched_pages + 1,
+                        "No more assets in page, stopping pagination"
+                    );
                     break; // no more pages
                 }
+
+                let mut new_assets_this_page = 0;
 
                 for item in &arr {
                     let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
@@ -360,7 +393,20 @@ impl ImmichImageSource {
                         Orientation::Landscape
                     };
                     all_entries.push((id.to_string(), orient));
+                    new_assets_this_page += 1;
+                    total_assets_for_filter += 1;
                 }
+
+                tracing::debug!(
+                    filter_idx,
+                    page_num = fetched_pages + 1,
+                    new_assets_this_page,
+                    total_unique_assets = all_entries.len(),
+                    total_assets_for_filter,
+                    duplicates_skipped = arr.len() - new_assets_this_page,
+                    "Processed Immich assets page"
+                );
+
                 fetched_pages += 1;
                 // Advance using nextPage token when available; stop if null/missing.
                 let next_page_val = assets_obj
@@ -370,11 +416,37 @@ impl ImmichImageSource {
                 match next_page_val {
                     Some(v) if !v.is_null() => {
                         page_token = Some(v);
+                        tracing::trace!(
+                            filter_idx,
+                            page_num = fetched_pages + 1,
+                            ?page_token,
+                            "Found next page token, continuing pagination"
+                        );
                     }
-                    _ => break,
+                    _ => {
+                        tracing::trace!(
+                            filter_idx,
+                            page_num = fetched_pages + 1,
+                            "No next page token found, stopping pagination"
+                        );
+                        break;
+                    }
                 }
             }
+
+            tracing::trace!(
+                filter_idx,
+                total_pages_fetched = fetched_pages,
+                total_assets_for_filter,
+                "Completed Immich search for filter"
+            );
         }
+
+        tracing::debug!(
+            total_filters = searches.len(),
+            total_unique_assets = all_entries.len(),
+            "Completed all Immich metadata searches"
+        );
 
         // Only update last_list timestamp on successful completion of all searches
         *self.entries.write() = all_entries;

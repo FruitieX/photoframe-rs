@@ -215,17 +215,6 @@ impl FrameScheduler {
         };
         let desired = f.orientation.unwrap_or_default();
 
-        // Log stats to help diagnose empty selections.
-        {
-            let sources_guard = self.sources.read().await;
-            for sid in &f.source_ids {
-                if let Some(src) = sources_guard.get(sid) {
-                    let st = src.stats();
-                    tracing::debug!(frame=%frame_id, source=%sid, total=st.total, landscape=st.landscape, portrait=st.portrait, "source stats (prime)");
-                }
-            }
-        }
-
         let mut selected: Option<sources::ImageMeta> = None;
         // Shuffle configured sources before probing to select a source at random
         let mut sids: Vec<String> = f.source_ids.to_vec();
@@ -248,6 +237,18 @@ impl FrameScheduler {
                 break;
             }
         }
+
+        // Log stats to help diagnose empty selections.
+        {
+            let sources_guard = self.sources.read().await;
+            for sid in &f.source_ids {
+                if let Some(src) = sources_guard.get(sid) {
+                    let st = src.stats();
+                    tracing::debug!(frame=%frame_id, source=%sid, total=st.total, landscape=st.landscape, portrait=st.portrait, "source stats (prime)");
+                }
+            }
+        }
+
         if selected.is_none() {
             tracing::warn!(frame=%frame_id, desired=?desired, "no matching image found to prime");
             return Ok(());
