@@ -77,6 +77,8 @@ pub struct FrameUpdate {
     pub timestamp_stroke_width: Option<u32>,
     #[serde(default)]
     pub timestamp_stroke_color: Option<crate::config::TimestampStrokeColor>,
+    #[serde(default)]
+    pub timestamp_format: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -189,6 +191,7 @@ pub async fn patch_frame(
         || payload.timestamp_stroke_enabled.is_some()
         || payload.timestamp_stroke_width.is_some()
         || payload.timestamp_stroke_color.is_some()
+        || payload.timestamp_format.is_some()
     {
         config::ConfigManager::update_frame_timestamp(
             &state.cfg,
@@ -205,6 +208,7 @@ pub async fn patch_frame(
                 stroke_enabled: payload.timestamp_stroke_enabled,
                 stroke_width: payload.timestamp_stroke_width,
                 stroke_color: payload.timestamp_stroke_color,
+                format: payload.timestamp_format.clone(),
             },
         )
         .await
@@ -563,6 +567,7 @@ pub async fn preview_frame(
             || payload.timestamp_stroke_enabled.is_some()
             || payload.timestamp_stroke_width.is_some()
             || payload.timestamp_stroke_color.is_some()
+            || payload.timestamp_format.is_some()
         {
             let mut ts = effective.timestamp.clone().unwrap_or_default();
             if let Some(v) = payload.timestamp_enabled {
@@ -597,6 +602,9 @@ pub async fn preview_frame(
             }
             if let Some(v) = payload.timestamp_stroke_color {
                 ts.stroke_color = Some(v);
+            }
+            if let Some(v) = payload.timestamp_format.clone() {
+                ts.format = Some(v);
             }
             effective.timestamp = Some(ts);
         }

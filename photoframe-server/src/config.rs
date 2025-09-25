@@ -207,6 +207,8 @@ pub struct Timestamp {
     pub stroke_width: Option<u32>,
     /// Stroke color selection (auto chooses opposite of text color).
     pub stroke_color: Option<TimestampStrokeColor>,
+    /// Optional chrono-style format string for the timestamp. Defaults to "%Y-%m-%d".
+    pub format: Option<String>,
 }
 
 /// Parameters for updating a frame's timestamp config. All fields are optional; only provided values are written.
@@ -223,6 +225,7 @@ pub struct TimestampUpdate {
     pub stroke_enabled: Option<bool>,
     pub stroke_width: Option<u32>,
     pub stroke_color: Option<TimestampStrokeColor>,
+    pub format: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -513,6 +516,9 @@ impl ConfigManager {
                         TimestampStrokeColor::Black => "black",
                     };
                     ts_tbl["stroke_color"] = value(s);
+                }
+                if let Some(v) = params.format.as_deref() {
+                    ts_tbl["format"] = value(v);
                 }
             }
         } else {

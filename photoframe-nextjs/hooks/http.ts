@@ -37,6 +37,7 @@ export interface Timestamp {
   stroke_enabled?: boolean;
   stroke_width?: number;
   stroke_color?: TimestampStrokeColor;
+  format?: string;
 }
 
 export interface FrameConfig {
@@ -128,6 +129,7 @@ export interface FramePatchPayload extends FrameAdjustments {
   timestamp_stroke_enabled?: boolean;
   timestamp_stroke_width?: number;
   timestamp_stroke_color?: TimestampStrokeColor;
+  timestamp_format?: string;
 }
 export interface PreviewParams extends FramePatchPayload {}
 

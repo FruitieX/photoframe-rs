@@ -1,6 +1,5 @@
 use crate::config::{Overscan, Timestamp, TimestampColor, TimestampPosition, TimestampStrokeColor};
 use anyhow::{Context, Result};
-use chrono::Datelike;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, RgbaImage, imageops};
 use rusttype::{Font, Point, PositionedGlyph, Scale};
 
@@ -621,7 +620,9 @@ pub fn render_timestamp(
         Some(d) => d,
         None => return Ok(image),
     };
-    let date_str = format!("{:04}-{:02}-{:02}", dt.year(), dt.month(), dt.day());
+    // Allow custom format, default to YYYY-MM-DD
+    let fmt = timestamp_config.format.as_deref().unwrap_or("%Y-%m-%d");
+    let date_str = dt.format(fmt).to_string();
     let font = Font::try_from_bytes(DEFAULT_FONT_DATA).context("failed to parse embedded font")?;
 
     let font_size = timestamp_config.font_size.unwrap_or(24.0);

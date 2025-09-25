@@ -62,6 +62,7 @@ export function TimestampAccordion({
     timestampStrokeEnabled,
     timestampStrokeWidth,
     timestampStrokeColor,
+    timestampFormat,
   } = uiState;
 
   return (
@@ -181,6 +182,20 @@ export function TimestampAccordion({
                   inputProps={{ min: 0 }}
                 />
               )}
+
+              <TextField
+                size="small"
+                label="Timestamp Format"
+                value={timestampFormat ?? ""}
+                placeholder="%Y-%m-%d"
+                helperText="Chrono format, e.g. %Y-%m-%d %H:%M"
+                onChange={(e) =>
+                  setUiState({
+                    ...uiState,
+                    timestampFormat: e.target.value || undefined,
+                  })
+                }
+              />
 
               <div>
                 <Typography variant="caption" gutterBottom>

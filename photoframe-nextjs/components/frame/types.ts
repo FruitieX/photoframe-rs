@@ -26,6 +26,7 @@ export interface FrameUiState {
   timestampStrokeEnabled: boolean;
   timestampStrokeWidth: number;
   timestampStrokeColor: string;
+  timestampFormat?: string;
 }
 
 export type SetFrameUiState = (

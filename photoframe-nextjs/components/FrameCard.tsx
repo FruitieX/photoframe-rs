@@ -74,6 +74,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
     timestampStrokeEnabled: frame.timestamp?.stroke_enabled ?? false,
     timestampStrokeWidth: frame.timestamp?.stroke_width ?? 2,
     timestampStrokeColor: frame.timestamp?.stroke_color ?? "auto",
+    timestampFormat: frame.timestamp?.format,
   });
   const [previewObjectUrl, setPreviewObjectUrl] = useState<string | null>(null);
   const requestIdRef = useRef(0);
@@ -115,6 +116,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
         timestamp_stroke_enabled: uiState.timestampStrokeEnabled,
         timestamp_stroke_width: uiState.timestampStrokeWidth,
         timestamp_stroke_color: uiState.timestampStrokeColor as any,
+        timestamp_format: uiState.timestampFormat,
       };
       const id = ++requestIdRef.current;
       setLoadingMode("preview");
@@ -260,7 +262,8 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
       a.timestamp_padding_vertical !== b.timestamp_padding_vertical ||
       a.timestamp_stroke_enabled !== b.timestamp_stroke_enabled ||
       a.timestamp_stroke_width !== b.timestamp_stroke_width ||
-      a.timestamp_stroke_color !== b.timestamp_stroke_color
+      a.timestamp_stroke_color !== b.timestamp_stroke_color ||
+      a.timestamp_format !== b.timestamp_format
     );
   };
 
@@ -319,6 +322,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
       uiState.timestampStrokeEnabled,
       uiState.timestampStrokeWidth,
       uiState.timestampStrokeColor,
+      uiState.timestampFormat,
     ],
     500,
     { leading: true, maxWait: 500 },
@@ -351,6 +355,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
       timestampStrokeEnabled: frame.timestamp?.stroke_enabled ?? false,
       timestampStrokeWidth: frame.timestamp?.stroke_width ?? 2,
       timestampStrokeColor: frame.timestamp?.stroke_color ?? "auto",
+      timestampFormat: frame.timestamp?.format,
     });
     // No automatic preview if values already match last; queuePreview handles comparison.
     queuePreview();
@@ -377,7 +382,8 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
     uiState.timestampFullWidthBanner !== (frame.timestamp?.full_width_banner ?? false) ||
     uiState.timestampBannerHeight !== (frame.timestamp?.banner_height ?? 40) ||
     uiState.timestampPaddingHorizontal !== (frame.timestamp?.padding_horizontal ?? 16) ||
-    uiState.timestampPaddingVertical !== (frame.timestamp?.padding_vertical ?? 16);
+    uiState.timestampPaddingVertical !== (frame.timestamp?.padding_vertical ?? 16) ||
+    uiState.timestampFormat !== frame.timestamp?.format;
 
   // Auto-refresh preview every minute to reflect external updates.
   useEffect(() => {
@@ -436,6 +442,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
               timestamp_stroke_enabled: uiState.timestampStrokeEnabled,
               timestamp_stroke_width: uiState.timestampStrokeWidth,
               timestamp_stroke_color: uiState.timestampStrokeColor as any,
+              timestamp_format: uiState.timestampFormat,
             });
           }}
           className="flex flex-col gap-3"
@@ -525,6 +532,7 @@ export function FrameCard({ frame, refresh, apiBase }: Props) {
                 timestamp_stroke_enabled: uiState.timestampStrokeEnabled,
                 timestamp_stroke_width: uiState.timestampStrokeWidth,
                 timestamp_stroke_color: uiState.timestampStrokeColor as any,
+                timestamp_format: uiState.timestampFormat,
               })
             }
             onNext={() => nextMutation.mutate()}
