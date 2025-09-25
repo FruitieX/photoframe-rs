@@ -11,7 +11,7 @@ pub struct ProcessParams<'a> {
     pub frame: &'a PhotoFrame,
     pub base: &'a DynamicImage,
     pub palette: Option<&'a [[u8; 3]]>,
-    pub date_taken: Option<chrono::NaiveDateTime>,
+    pub date_taken: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Run full pipeline from base to prepared RGBA pixel vec.

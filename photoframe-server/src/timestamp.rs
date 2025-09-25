@@ -610,7 +610,7 @@ pub fn render_timestamp(
     image: DynamicImage,
     timestamp_config: &Timestamp,
     reduced_height: Option<u32>,
-    date_taken: Option<chrono::NaiveDateTime>,
+    date_taken: Option<chrono::DateTime<chrono::Utc>>,
     overscan: Option<&Overscan>,
 ) -> Result<DynamicImage> {
     if !timestamp_config.enabled {
@@ -620,9 +620,10 @@ pub fn render_timestamp(
         Some(d) => d,
         None => return Ok(image),
     };
-    // Allow custom format, default to YYYY-MM-DD
+    // Convert to local time and format. Falls back to %Y-%m-%d
+    let local_dt: chrono::DateTime<chrono::Local> = dt.into();
     let fmt = timestamp_config.format.as_deref().unwrap_or("%Y-%m-%d");
-    let date_str = dt.format(fmt).to_string();
+    let date_str = local_dt.format(fmt).to_string();
     let font = Font::try_from_bytes(DEFAULT_FONT_DATA).context("failed to parse embedded font")?;
 
     let font_size = timestamp_config.font_size.unwrap_or(24.0);

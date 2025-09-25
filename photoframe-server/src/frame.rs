@@ -2,6 +2,7 @@ use crate::config::{ImageLimits, OutputFormat, PhotoFrame, UploadTransport};
 use crate::pipeline::{self, ProcessParams};
 use crate::sources::{ImageMeta, SourceData};
 use anyhow::{Context, Result};
+use chrono::TimeZone;
 use css_color::Srgb;
 use image::ImageDecoder;
 use image::ImageReader;
@@ -170,14 +171,13 @@ fn extract_exif_date_taken(bytes: &[u8]) -> Result<Option<chrono::DateTime<chron
         return Ok(Some(dt.with_timezone(&chrono::Utc)));
     }
     if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&base, "%Y:%m:%d %H:%M:%S%.f") {
-        return Ok(Some(
-            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc),
-        ));
+        // Interpret as local time if no offset is present, then convert to UTC for storage
+        let local = chrono::Local.from_local_datetime(&naive).earliest();
+        return Ok(local.map(|ldt| ldt.with_timezone(&chrono::Utc)));
     }
     if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&base, "%Y:%m:%d %H:%M:%S") {
-        return Ok(Some(
-            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc),
-        ));
+        let local = chrono::Local.from_local_datetime(&naive).earliest();
+        return Ok(local.map(|ldt| ldt.with_timezone(&chrono::Utc)));
     }
     Ok(None)
 }
@@ -270,7 +270,7 @@ pub fn prepare_from_base_with_date(
         frame,
         base,
         palette: palette_vec.as_deref(),
-        date_taken: date_taken.map(|d| d.naive_utc()),
+        date_taken,
     })
     .expect("processing failed");
 
@@ -312,7 +312,7 @@ pub fn prepare_from_scaled_with_date(
         frame,
         base: scaled,
         palette: palette_vec.as_deref(),
-        date_taken: date_taken.map(|d| d.naive_utc()),
+        date_taken,
     })
     .expect("processing failed");
 
