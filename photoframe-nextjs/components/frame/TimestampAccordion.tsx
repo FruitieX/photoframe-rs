@@ -14,7 +14,11 @@ import MenuItem from "@mui/material/MenuItem";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import TextField from "@mui/material/TextField";
 import type { FrameUiState, SetFrameUiState } from "./types";
-import type { TimestampPosition, TimestampColor, TimestampStrokeColor } from "../../hooks/http";
+import type {
+  TimestampPosition,
+  TimestampColor,
+  TimestampStrokeColor,
+} from "../../hooks/http";
 
 interface Props {
   expanded: boolean;

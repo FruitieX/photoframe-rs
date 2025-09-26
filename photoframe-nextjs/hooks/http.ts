@@ -14,15 +14,20 @@ export interface Overscan {
   bottom: number;
 }
 
-export type TimestampPosition = 
-  | "bottom_left" 
-  | "bottom_center" 
-  | "bottom_right" 
-  | "top_left" 
-  | "top_center" 
+export type TimestampPosition =
+  | "bottom_left"
+  | "bottom_center"
+  | "bottom_right"
+  | "top_left"
+  | "top_center"
   | "top_right";
 
-export type TimestampColor = "transparent_white_text" | "transparent_black_text" | "transparent_auto_text" | "white_background" | "black_background";
+export type TimestampColor =
+  | "transparent_white_text"
+  | "transparent_black_text"
+  | "transparent_auto_text"
+  | "white_background"
+  | "black_background";
 export type TimestampStrokeColor = "auto" | "white" | "black";
 
 export interface Timestamp {
@@ -94,7 +99,11 @@ export function useSetImmichCredentials(apiBase: string, sourceId: string) {
 // (Future) mutation to persist Immich filters could be added here once backend endpoint exists.
 export function useSetImmichFilters(apiBase: string, sourceId: string) {
   const qc = useQueryClient();
-  return useMutation<void, Error, { filters: Record<string, unknown> | Record<string, unknown>[] }>({
+  return useMutation<
+    void,
+    Error,
+    { filters: Record<string, unknown> | Record<string, unknown>[] }
+  >({
     mutationFn: async (payload) => {
       const res = await fetch(`${apiBase}/sources/${sourceId}/immich/filters`, {
         method: "POST",

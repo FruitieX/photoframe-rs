@@ -14,6 +14,7 @@ import FileUploadIcon from "@mui/icons-material/FileUpload";
 import PauseCircleIcon from "@mui/icons-material/PauseCircle";
 import BuildCircleIcon from "@mui/icons-material/BuildCircle";
 import ScreenRotationIcon from "@mui/icons-material/ScreenRotation";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 
 interface PaletteInfo {
   palette: { input: string; hex: string; rgb: [number, number, number] }[];
@@ -31,6 +32,8 @@ interface Props {
   uploadPending: boolean;
   onClear: () => void;
   clearPending: boolean;
+  onTrigger: () => void;
+  triggerPending: boolean;
   palette: PaletteInfo | undefined;
 }
 
@@ -47,6 +50,8 @@ export function MiscSettingsAccordion(props: Props) {
     uploadPending,
     onClear,
     clearPending,
+    onTrigger,
+    triggerPending,
     palette,
   } = props;
   const { flip, paused, dummy } = uiState;
@@ -145,6 +150,14 @@ export function MiscSettingsAccordion(props: Props) {
               disabled={clearPending}
             >
               Clear screen
+            </Button>
+            <Button
+              size="small"
+              startIcon={<PlayArrowIcon fontSize="small" />}
+              onClick={onTrigger}
+              disabled={triggerPending}
+            >
+              Trigger schedule manually
             </Button>
             <Button
               size="small"

@@ -116,7 +116,8 @@ export function FrameCard({ frame, apiBase }: Props) {
         timestamp_padding_vertical: uiState.timestampPaddingVertical,
         timestamp_stroke_enabled: uiState.timestampStrokeEnabled,
         timestamp_stroke_width: uiState.timestampStrokeWidth,
-        timestamp_stroke_color: uiState.timestampStrokeColor as TimestampStrokeColor,
+        timestamp_stroke_color:
+          uiState.timestampStrokeColor as TimestampStrokeColor,
         timestamp_format: uiState.timestampFormat,
       };
       const id = ++requestIdRef.current;
@@ -290,7 +291,8 @@ export function FrameCard({ frame, apiBase }: Props) {
       timestamp_padding_vertical: uiState.timestampPaddingVertical,
       timestamp_stroke_enabled: uiState.timestampStrokeEnabled,
       timestamp_stroke_width: uiState.timestampStrokeWidth,
-      timestamp_stroke_color: uiState.timestampStrokeColor as TimestampStrokeColor,
+      timestamp_stroke_color:
+        uiState.timestampStrokeColor as TimestampStrokeColor,
     };
     // When showing the Original (intermediate) image, avoid auto-calling /preview.
     if (uiState.showIntermediate) return;
@@ -377,13 +379,18 @@ export function FrameCard({ frame, apiBase }: Props) {
     uiState.dummy !== !!frame.dummy ||
     // Timestamp changes count as unsaved until user clicks Save
     uiState.timestampEnabled !== (frame.timestamp?.enabled ?? false) ||
-    uiState.timestampPosition !== (frame.timestamp?.position ?? "bottom_right") ||
+    uiState.timestampPosition !==
+      (frame.timestamp?.position ?? "bottom_right") ||
     uiState.timestampFontSize !== (frame.timestamp?.font_size ?? 24) ||
-    uiState.timestampColor !== (frame.timestamp?.color ?? "transparent_white_text") ||
-    uiState.timestampFullWidthBanner !== (frame.timestamp?.full_width_banner ?? false) ||
+    uiState.timestampColor !==
+      (frame.timestamp?.color ?? "transparent_white_text") ||
+    uiState.timestampFullWidthBanner !==
+      (frame.timestamp?.full_width_banner ?? false) ||
     uiState.timestampBannerHeight !== (frame.timestamp?.banner_height ?? 40) ||
-    uiState.timestampPaddingHorizontal !== (frame.timestamp?.padding_horizontal ?? 16) ||
-    uiState.timestampPaddingVertical !== (frame.timestamp?.padding_vertical ?? 16) ||
+    uiState.timestampPaddingHorizontal !==
+      (frame.timestamp?.padding_horizontal ?? 16) ||
+    uiState.timestampPaddingVertical !==
+      (frame.timestamp?.padding_vertical ?? 16) ||
     uiState.timestampFormat !== frame.timestamp?.format;
 
   // Auto-refresh preview every minute to reflect external updates.
@@ -433,7 +440,8 @@ export function FrameCard({ frame, apiBase }: Props) {
               flip: uiState.flip,
               // Persist timestamp settings on save
               timestamp_enabled: uiState.timestampEnabled,
-              timestamp_position: uiState.timestampPosition as TimestampPosition,
+              timestamp_position:
+                uiState.timestampPosition as TimestampPosition,
               timestamp_font_size: uiState.timestampFontSize,
               timestamp_color: uiState.timestampColor as TimestampColor,
               timestamp_full_width_banner: uiState.timestampFullWidthBanner,
@@ -442,7 +450,8 @@ export function FrameCard({ frame, apiBase }: Props) {
               timestamp_padding_vertical: uiState.timestampPaddingVertical,
               timestamp_stroke_enabled: uiState.timestampStrokeEnabled,
               timestamp_stroke_width: uiState.timestampStrokeWidth,
-              timestamp_stroke_color: uiState.timestampStrokeColor as TimestampStrokeColor,
+              timestamp_stroke_color:
+                uiState.timestampStrokeColor as TimestampStrokeColor,
               timestamp_format: uiState.timestampFormat,
             });
           }}
@@ -467,7 +476,9 @@ export function FrameCard({ frame, apiBase }: Props) {
               expanded={uiState.tab === 2}
               onToggle={(e) => setUiState({ ...uiState, tab: e ? 2 : -1 })}
               uiState={uiState}
-              setUiState={(next: FrameUiState | ((prev: FrameUiState) => FrameUiState)) => {
+              setUiState={(
+                next: FrameUiState | ((prev: FrameUiState) => FrameUiState),
+              ) => {
                 const newState =
                   typeof next === "function" ? next(uiState) : next;
                 // Update local UI only; preview will post to /preview via debounced effect
@@ -478,7 +489,9 @@ export function FrameCard({ frame, apiBase }: Props) {
               expanded={uiState.tab === 3}
               onToggle={(e) => setUiState({ ...uiState, tab: e ? 3 : -1 })}
               uiState={uiState}
-              setUiState={(next: FrameUiState | ((prev: FrameUiState) => FrameUiState)) => {
+              setUiState={(
+                next: FrameUiState | ((prev: FrameUiState) => FrameUiState),
+              ) => {
                 const newState =
                   typeof next === "function" ? next(uiState) : next;
                 // apply mutations for toggles when these specific fields change
@@ -502,6 +515,8 @@ export function FrameCard({ frame, apiBase }: Props) {
                 })
               }
               clearPending={clearMutation.isPending}
+              onTrigger={() => triggerMutation.mutate()}
+              triggerPending={triggerMutation.isPending}
               palette={paletteQuery.data}
             />
           </div>
@@ -523,16 +538,19 @@ export function FrameCard({ frame, apiBase }: Props) {
                 flip: uiState.flip,
                 // Persist timestamp settings on explicit Save
                 timestamp_enabled: uiState.timestampEnabled,
-                timestamp_position: uiState.timestampPosition as TimestampPosition,
+                timestamp_position:
+                  uiState.timestampPosition as TimestampPosition,
                 timestamp_font_size: uiState.timestampFontSize,
                 timestamp_color: uiState.timestampColor as TimestampColor,
                 timestamp_full_width_banner: uiState.timestampFullWidthBanner,
                 timestamp_banner_height: uiState.timestampBannerHeight,
-                timestamp_padding_horizontal: uiState.timestampPaddingHorizontal,
+                timestamp_padding_horizontal:
+                  uiState.timestampPaddingHorizontal,
                 timestamp_padding_vertical: uiState.timestampPaddingVertical,
                 timestamp_stroke_enabled: uiState.timestampStrokeEnabled,
                 timestamp_stroke_width: uiState.timestampStrokeWidth,
-                timestamp_stroke_color: uiState.timestampStrokeColor as TimestampStrokeColor,
+                timestamp_stroke_color:
+                  uiState.timestampStrokeColor as TimestampStrokeColor,
                 timestamp_format: uiState.timestampFormat,
               })
             }

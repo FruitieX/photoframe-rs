@@ -82,7 +82,7 @@ function ImmichInlineOnboard({
 
   // Prefill from config when it loads/changes
   const [hasInitialized, setHasInitialized] = React.useState(false);
-  
+
   React.useEffect(() => {
     if (current && !hasInitialized) {
       if (current.base_url) setBaseUrl(current.base_url);
@@ -103,7 +103,12 @@ function ImmichInlineOnboard({
       if (parsed && typeof parsed === "object") {
         if (Array.isArray(parsed)) {
           // Validate that all array elements are objects
-          if (parsed.every(item => item && typeof item === "object" && !Array.isArray(item))) {
+          if (
+            parsed.every(
+              (item) =>
+                item && typeof item === "object" && !Array.isArray(item),
+            )
+          ) {
             setFiltersError(null);
             return parsed as Record<string, unknown>[];
           }
@@ -176,8 +181,9 @@ function ImmichInlineOnboard({
       </div>
       <div className="flex flex-col gap-2">
         <Typography variant="body2" className="opacity-70">
-          Search Filters (JSON for Immich /api/search/asset). Can be a single object or array of objects.
-          Multiple filters are combined (OR logic). type=[&quot;IMAGE&quot;] is always enforced server-side.
+          Search Filters (JSON for Immich /api/search/asset). Can be a single
+          object or array of objects. Multiple filters are combined (OR logic).
+          type=[&quot;IMAGE&quot;] is always enforced server-side.
         </Typography>
         <TextField
           size="small"
@@ -190,7 +196,10 @@ function ImmichInlineOnboard({
           multiline
           minRows={5}
           error={!!filtersError}
-          helperText={filtersError || "Single object: {...} or Array: [{...}, {...}] with albumIds, personIds, etc."}
+          helperText={
+            filtersError ||
+            "Single object: {...} or Array: [{...}, {...}] with albumIds, personIds, etc."
+          }
         />
         <div className="flex gap-2">
           <Button
