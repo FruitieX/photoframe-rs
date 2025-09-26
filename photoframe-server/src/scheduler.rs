@@ -1,5 +1,6 @@
 use crate::{config, frame, sources};
 use anyhow::Result;
+use chrono_tz::Tz;
 use rand::rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
@@ -27,6 +28,25 @@ impl FrameScheduler {
             cfg,
             sources: Arc::new(RwLock::new(sources_map)),
         })
+    }
+
+    /// Parse timezone from TZ environment variable, fallback to UTC
+    fn get_timezone() -> Result<Tz> {
+        if let Ok(tz_str) = std::env::var("TZ") {
+            match tz_str.parse::<Tz>() {
+                Ok(tz) => {
+                    tracing::info!(timezone = %tz, "using timezone from TZ environment variable");
+                    Ok(tz)
+                }
+                Err(e) => {
+                    tracing::warn!(tz = %tz_str, error = %e, "invalid timezone in TZ environment variable, falling back to UTC");
+                    Ok(chrono_tz::UTC)
+                }
+            }
+        } else {
+            tracing::info!("no TZ environment variable set, using UTC");
+            Ok(chrono_tz::UTC)
+        }
     }
 
     /// Build the sources map from the current configuration
@@ -63,13 +83,15 @@ impl FrameScheduler {
 
     pub async fn populate(&self) -> Result<()> {
         let cfg_snapshot = config::ConfigManager::to_struct(&self.cfg).await?;
+        let timezone = Self::get_timezone()?;
+
         for (frame_id, frame) in cfg_snapshot.photoframes.iter() {
             if let Some(cron) = &frame.update_cron {
                 let frame_id_clone = frame_id.clone();
                 let shared = Arc::clone(&self.cfg);
                 let sources_map = Arc::clone(&self.sources);
                 let cron_expr = cron.to_string();
-                let job = Job::new_async(cron_expr.as_str(), move |_uuid, _l| {
+                let job = Job::new_async_tz(cron_expr.as_str(), timezone, move |_uuid, _l| {
                     let frame_id = frame_id_clone.clone();
                     let shared = Arc::clone(&shared);
                     let sources_map = Arc::clone(&sources_map);
