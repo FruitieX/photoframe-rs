@@ -241,6 +241,8 @@ export function useTriggerFrameMutation(
   frameId: string,
   opts?: { onSuccess?: () => void },
 ) {
+  const previewMutation = usePreviewFrameMutation(apiBase, frameId);
+
   return useMutation<void, Error, void>({
     mutationFn: async () => {
       const res = await fetch(`${apiBase}/frames/${frameId}/trigger`, {
@@ -248,7 +250,11 @@ export function useTriggerFrameMutation(
       });
       if (!res.ok) throw new Error("Trigger failed");
     },
-    onSuccess: () => opts?.onSuccess?.(),
+    onSuccess: () => {
+      // Force a refetch of preview immediately after trigger
+      previewMutation.mutate(undefined);
+      opts?.onSuccess?.();
+    },
   });
 }
 
