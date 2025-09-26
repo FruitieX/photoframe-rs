@@ -4,6 +4,7 @@ import CardContent from "@mui/material/CardContent";
 import {
   usePatchFrameMutation,
   useTriggerFrameMutation,
+  usePushFrameMutation,
   useNextFrameMutation,
   useUploadFrameMutation,
   usePreviewFrameMutation,
@@ -185,6 +186,9 @@ export function FrameCard({ frame, apiBase }: Props) {
   }, []);
 
   const triggerMutation = useTriggerFrameMutation(apiBase, frame.id, {
+    onSuccess: () => requestImageRef.current(uiState.showIntermediate),
+  });
+  const pushMutation = usePushFrameMutation(apiBase, frame.id, {
     onSuccess: () => requestImageRef.current(uiState.showIntermediate),
   });
   const nextMutation = useNextFrameMutation(apiBase, frame.id, {
@@ -555,10 +559,10 @@ export function FrameCard({ frame, apiBase }: Props) {
               })
             }
             onNext={() => nextMutation.mutate()}
-            onPush={() => triggerMutation.mutate()}
+            onPush={() => pushMutation.mutate()}
             saving={patchMutation.isPending}
             nextPending={nextMutation.isPending}
-            pushPending={triggerMutation.isPending}
+            pushPending={pushMutation.isPending}
           />
         </form>
       </CardContent>

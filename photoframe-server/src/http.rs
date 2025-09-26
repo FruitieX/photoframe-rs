@@ -262,6 +262,7 @@ pub fn router(state: AppState) -> Router {
             post(upload_frame).layer(DefaultBodyLimit::disable()),
         )
         .route("/frames/{id}/trigger", post(trigger_frame))
+        .route("/frames/{id}/push", post(push_frame))
         .route("/frames/{id}/next", post(next_frame))
         .route("/frames/{id}/preview", post(preview_frame))
         .route(
@@ -666,15 +667,25 @@ pub async fn trigger_frame(
     Path(frame_id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, StatusCode> {
-    // First try to push currently cached base (e.g., just uploaded or primed); if none, run full selection.
-    if let Err(e) = state.scheduler.push_cached_base(&frame_id).await {
-        tracing::debug!(frame=%frame_id, error=%e, "push_cached_base failed; falling back to trigger");
-        state
-            .scheduler
-            .trigger_frame(&frame_id)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
+    // Trigger manual schedule - this behaves exactly like scheduled cron jobs
+    state
+        .scheduler
+        .manual_schedule_trigger(&frame_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+pub async fn push_frame(
+    Path(frame_id): Path<String>,
+    State(state): State<AppState>,
+) -> Result<StatusCode, StatusCode> {
+    // Push currently cached base image to the frame device
+    state
+        .scheduler
+        .push_cached_base(&frame_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::ACCEPTED)
 }
 

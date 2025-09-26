@@ -194,22 +194,9 @@ impl FrameScheduler {
         Ok(())
     }
 
-    /// Public method to manually trigger an update for a frame id.
-    pub async fn trigger_frame(&self, frame_id: &str) -> Result<()> {
-        // Prefer pushing the currently cached base image (from upload or prime-next)
-        let cfg_now = config::ConfigManager::to_struct(&self.cfg).await?;
-        if let Some(f) = cfg_now.photoframes.get(frame_id)
-            && let Some(base) = frame::get_base_image(frame_id).await?
-        {
-            let prepared = frame::prepare_from_base(f, &base);
-            if let Err(e) = frame::save_prepared(frame_id, &prepared) {
-                tracing::warn!(frame=%frame_id, error=%e, "failed saving prepared image (trigger)");
-            }
-            frame::push_to_device(frame_id, f, &prepared).await?;
-            tracing::info!(frame=%frame_id, "pushed currently cached image");
-            return Ok(());
-        }
-        // Fallback: select next from sources and push
+    /// Public method to manually trigger a schedule update for a frame id.
+    /// This behaves exactly like the scheduled cron jobs - always fetches next image from sources.
+    pub async fn manual_schedule_trigger(&self, frame_id: &str) -> Result<()> {
         Self::run_frame_update(&self.cfg, &self.sources, frame_id, true).await
     }
 

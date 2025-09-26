@@ -252,6 +252,23 @@ export function useTriggerFrameMutation(
   });
 }
 
+/** Push currently cached image to frame */
+export function usePushFrameMutation(
+  apiBase: string,
+  frameId: string,
+  opts?: { onSuccess?: () => void },
+) {
+  return useMutation<void, Error, void>({
+    mutationFn: async () => {
+      const res = await fetch(`${apiBase}/frames/${frameId}/push`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("Push failed");
+    },
+    onSuccess: () => opts?.onSuccess?.(),
+  });
+}
+
 /** Select next image for the frame without pushing to device */
 export function useNextFrameMutation(
   apiBase: string,
