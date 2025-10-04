@@ -11,8 +11,10 @@ use image::{DynamicImage, GenericImageView, RgbaImage};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::time::Duration;
 use tokio::fs;
 use tokio::sync::RwLock;
+use tokio::time::sleep;
 
 /// Represents an in-memory prepared frame image (currently just raw RGBA pixels).
 pub struct PreparedFrameImage {
@@ -317,8 +319,6 @@ async fn store_base(
 
 /// Save metadata about the fetched image as JSON.
 async fn store_metadata(frame_id: &str, meta: &ImageMeta) {
-    use serde_json::json;
-
     let path = PathBuf::from(format!("{frame_id}_metadata.json"));
 
     let filename_or_id = match &meta.data {
@@ -700,31 +700,76 @@ pub async fn push_to_device(
         .clone()
         .context("missing upload_endpoint")?;
     let transport = frame.upload_transport.unwrap_or(UploadTransport::Raw);
-    let resp = match transport {
-        UploadTransport::Raw => {
-            client
-                .post(url)
-                .header(reqwest::header::CONTENT_TYPE, content_type)
-                .body(body_bytes)
-                .send()
-                .await?
+
+    // Retry up to 5 times with exponential backoff starting at 20s.
+    let max_attempts = 5u32;
+    let mut delay = Duration::from_secs(20);
+    for attempt in 1..=max_attempts {
+        tracing::info!(frame=%frame_id, attempt=%attempt, url=%url, "pushing image to frame");
+
+        let send_result: anyhow::Result<reqwest::Response> = match transport {
+            UploadTransport::Raw => {
+                let bytes = body_bytes.clone();
+                client
+                    .post(url)
+                    .header(reqwest::header::CONTENT_TYPE, content_type)
+                    .body(bytes)
+                    .send()
+                    .await
+                    .map_err(|e| e.into())
+            }
+            UploadTransport::Multipart => {
+                let bytes = body_bytes.clone();
+                let part = reqwest::multipart::Part::bytes(bytes)
+                    .file_name(match output_format {
+                        OutputFormat::Png => "image.png",
+                        OutputFormat::Packed4bpp => "image.bin",
+                    })
+                    .mime_str(content_type)
+                    .map_err(|e| anyhow::anyhow!("invalid mime '{}': {e}", content_type))?;
+                let form = reqwest::multipart::Form::new().part("file", part);
+                client
+                    .post(url)
+                    .multipart(form)
+                    .send()
+                    .await
+                    .map_err(|e| e.into())
+            }
+        };
+
+        match send_result {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    tracing::info!(frame=%frame_id, status=%resp.status().as_u16(), "push succeeded");
+                    return Ok(());
+                }
+                let status = resp.status();
+                if attempt >= max_attempts {
+                    anyhow::bail!(
+                        "device responded with status {} after {} attempts",
+                        status,
+                        attempt
+                    );
+                } else {
+                    tracing::warn!(frame=%frame_id, attempt=%attempt, status=%status.as_u16(), wait_secs=%delay.as_secs(), "device responded with non-success; retrying");
+                }
+            }
+            Err(e) => {
+                if attempt >= max_attempts {
+                    return Err(e)
+                        .with_context(|| format!("upload failed after {} attempts", attempt));
+                } else {
+                    tracing::warn!(frame=%frame_id, attempt=%attempt, error=%e, wait_secs=%delay.as_secs(), "upload error; retrying");
+                }
+            }
         }
-        UploadTransport::Multipart => {
-            let part = reqwest::multipart::Part::bytes(body_bytes)
-                .file_name(match output_format {
-                    OutputFormat::Png => "image.png",
-                    OutputFormat::Packed4bpp => "image.bin",
-                })
-                .mime_str(content_type)
-                .map_err(|e| anyhow::anyhow!("invalid mime '{}': {e}", content_type))?;
-            let form = reqwest::multipart::Form::new().part("file", part);
-            client.post(url).multipart(form).send().await?
-        }
-    };
-    if !resp.status().is_success() {
-        anyhow::bail!("device responded with status {}", resp.status());
+
+        sleep(delay).await;
+        delay = delay.saturating_mul(2);
     }
-    Ok(())
+
+    // Should be unreachable due to returns inside the loop
+    anyhow::bail!("upload failed")
 }
 
 /// Convenience: full pipeline from source metadata to pushing to device.
