@@ -28,6 +28,10 @@ pub struct ImageMeta {
     pub exif_blob: Option<Vec<u8>>,
     #[allow(dead_code)]
     pub id: Option<String>,
+    /// Source ID that provided this image
+    pub source_id: Option<String>,
+    /// Full asset metadata from Immich API (if applicable)
+    pub asset_metadata: Option<serde_json::Value>,
 }
 
 impl Debug for ImageMeta {
@@ -35,6 +39,7 @@ impl Debug for ImageMeta {
         f.debug_struct("ImageMeta")
             .field("orientation", &self.orientation)
             .field("id", &self.id)
+            .field("source_id", &self.source_id)
             .finish()
     }
 }
@@ -117,6 +122,8 @@ impl FilesystemImageSource {
                             date_taken: None, // Filesystem source doesn't extract EXIF during listing
                             exif_blob: None,  // Will be extracted when loading the file
                             id: Some(path.to_string_lossy().to_string()),
+                            source_id: None, // Will be set when returning from next()
+                            asset_metadata: None,
                         });
                     }
                 }
@@ -197,7 +204,7 @@ impl ImageSource for FilesystemImageSource {
 
 pub struct ImmichImageSource {
     pub cfg: ImmichSource,
-    pub entries: parking_lot::RwLock<Vec<(String, Orientation)>>, // asset_id + orientation metadata
+    pub entries: parking_lot::RwLock<Vec<(String, Orientation, serde_json::Value)>>, // asset_id + orientation + full metadata
     pub last_list: AtomicU64, // unix seconds of last listing, 0 = never
     pub cursor: AtomicUsize,  // for sequential order
 }
@@ -245,7 +252,7 @@ impl ImmichImageSource {
         let empty_filters = vec![];
         let filters_list = self.cfg.filters.as_ref().unwrap_or(&empty_filters);
 
-        let mut all_entries = Vec::new();
+        let mut all_entries: Vec<(String, Orientation, serde_json::Value)> = Vec::new();
         let mut seen_ids = std::collections::HashSet::new();
 
         // If no filters are configured, perform a single search with just type=IMAGE
@@ -392,7 +399,8 @@ impl ImmichImageSource {
                     } else {
                         Orientation::Landscape
                     };
-                    all_entries.push((id.to_string(), orient));
+                    // Keep full item metadata so we can avoid fetching it later
+                    all_entries.push((id.to_string(), orient, item.clone()));
                     new_assets_this_page += 1;
                     total_assets_for_filter += 1;
                 }
@@ -460,7 +468,8 @@ impl ImmichImageSource {
 impl ImageSource for ImmichImageSource {
     async fn next(&self, desired: Orientation) -> Result<Option<ImageMeta>> {
         self.list_if_needed().await.ok();
-        let snapshot: Vec<(String, Orientation)> = { self.entries.read().clone() };
+        let snapshot: Vec<(String, Orientation, serde_json::Value)> =
+            { self.entries.read().clone() };
         if snapshot.is_empty() {
             return Ok(None);
         }
@@ -472,11 +481,11 @@ impl ImageSource for ImmichImageSource {
                         let mut rng = rng();
                         rng.random_range(0..snapshot.len())
                     };
-                    let (asset_id, orient) = snapshot[idx].clone();
+                    let (asset_id, orient, metadata) = snapshot[idx].clone();
                     if orient != desired {
                         continue;
                     }
-                    if let Some(meta) = self.fetch_asset(&asset_id, orient).await? {
+                    if let Some(meta) = self.fetch_asset(&asset_id, orient, metadata).await? {
                         return Ok(Some(meta));
                     }
                 }
@@ -487,11 +496,14 @@ impl ImageSource for ImmichImageSource {
                 let start = self.cursor.fetch_add(1, AtomicOrdering::Relaxed);
                 for offset in 0..total {
                     let idx = (start + offset) % total;
-                    let (asset_id, orient) = &snapshot[idx];
+                    let (asset_id, orient, metadata) = &snapshot[idx];
                     if *orient != desired {
                         continue;
                     }
-                    if let Some(meta) = self.fetch_asset(asset_id, *orient).await? {
+                    if let Some(meta) = self
+                        .fetch_asset(asset_id, *orient, metadata.clone())
+                        .await?
+                    {
                         if offset > 0 {
                             self.cursor.fetch_add(offset, AtomicOrdering::Relaxed);
                         }
@@ -507,12 +519,14 @@ impl ImageSource for ImmichImageSource {
         let g = self.entries.read();
         let metas: Vec<ImageMeta> = g
             .iter()
-            .map(|(id, o)| ImageMeta {
+            .map(|(id, o, _meta)| ImageMeta {
                 data: SourceData::Path(PathBuf::from("remote")),
                 orientation: *o,
                 date_taken: None, // Stats don't need actual date data
                 exif_blob: None,  // Stats don't need EXIF data
                 id: Some(id.clone()),
+                source_id: None,
+                asset_metadata: None,
             })
             .collect();
         SourceStats::from_entries(&metas)
@@ -520,7 +534,12 @@ impl ImageSource for ImmichImageSource {
 }
 
 impl ImmichImageSource {
-    async fn fetch_asset(&self, asset_id: &str, orient: Orientation) -> Result<Option<ImageMeta>> {
+    async fn fetch_asset(
+        &self,
+        asset_id: &str,
+        orient: Orientation,
+        asset_metadata: serde_json::Value,
+    ) -> Result<Option<ImageMeta>> {
         let client = reqwest::Client::new();
         let base = self.cfg.base_url.clone().unwrap_or_default();
 
@@ -554,6 +573,8 @@ impl ImmichImageSource {
             date_taken,
             exif_blob,
             id: Some(asset_id.to_string()),
+            source_id: None, // Will be set when returning from next()
+            asset_metadata: Some(asset_metadata),
         }))
     }
 

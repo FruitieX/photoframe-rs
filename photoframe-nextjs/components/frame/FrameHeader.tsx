@@ -10,9 +10,16 @@ interface Props {
   unsaved: boolean;
   paused: boolean;
   dummy: boolean;
+  onOpenMetadata?: () => void;
 }
 
-export function FrameHeader({ title, unsaved, paused, dummy }: Props) {
+export function FrameHeader({
+  title,
+  unsaved,
+  paused,
+  dummy,
+  onOpenMetadata,
+}: Props) {
   return (
     <CardHeader
       title={title}
@@ -33,6 +40,15 @@ export function FrameHeader({ title, unsaved, paused, dummy }: Props) {
               color="default"
               icon={<BuildCircleIcon fontSize="small" />}
               label="Dummy"
+            />
+          )}
+          {!!onOpenMetadata && (
+            <Chip
+              size="small"
+              color="primary"
+              label="Metadata"
+              onClick={onOpenMetadata}
+              clickable
             />
           )}
         </Stack>

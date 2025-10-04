@@ -91,6 +91,7 @@ pub async fn load_and_store_base(
     }
     img = downscale_to_limits(&img, limits);
     store_base(frame_id, &img, date_taken, exif_blob).await;
+    store_metadata(frame_id, meta).await;
     Ok(img)
 }
 
@@ -311,6 +312,57 @@ async fn store_base(
             }
         }
         Err(e) => tracing::warn!(frame=%frame_id, error=%e, "failed to create base png"),
+    }
+}
+
+/// Save metadata about the fetched image as JSON.
+async fn store_metadata(frame_id: &str, meta: &ImageMeta) {
+    use serde_json::json;
+
+    let path = PathBuf::from(format!("{frame_id}_metadata.json"));
+
+    let filename_or_id = match &meta.data {
+        SourceData::Path(p) => p.to_string_lossy().to_string(),
+        SourceData::Bytes(_) => meta.id.clone().unwrap_or_else(|| "unknown".to_string()),
+    };
+
+    // Keep structure simple but informative. If we have Immich metadata already, store it raw.
+    let mut root = serde_json::Map::new();
+    root.insert(
+        "source_id".to_string(),
+        serde_json::Value::from(meta.source_id.clone()),
+    );
+    root.insert(
+        "filename".to_string(),
+        serde_json::Value::from(filename_or_id),
+    );
+    root.insert(
+        "asset_id".to_string(),
+        serde_json::Value::from(meta.id.clone()),
+    );
+    root.insert(
+        "orientation".to_string(),
+        serde_json::Value::from(format!("{:?}", meta.orientation)),
+    );
+    if let Some(dt) = meta.date_taken {
+        root.insert(
+            "date_taken".to_string(),
+            serde_json::Value::from(dt.to_rfc3339()),
+        );
+    }
+    if let Some(v) = &meta.asset_metadata {
+        // Store under immich_metadata as requested
+        root.insert("immich_metadata".to_string(), v.clone());
+    }
+
+    let doc = serde_json::Value::Object(root);
+    if let Err(e) = tokio::fs::write(
+        &path,
+        serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{}".into()),
+    )
+    .await
+    {
+        tracing::warn!(frame=%frame_id, error=%e, "failed to write metadata json");
     }
 }
 

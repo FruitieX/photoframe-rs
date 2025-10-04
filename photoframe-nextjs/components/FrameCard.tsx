@@ -29,7 +29,12 @@ import {
 } from "./frame";
 import type { FrameUiState } from "./frame";
 import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
-import { useFramePaletteQuery } from "../hooks/http";
+import { useFramePaletteQuery, useFrameMetadataQuery } from "../hooks/http";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import Button from "@mui/material/Button";
 
 export interface Frame extends FrameConfig {
   id: string;
@@ -197,6 +202,8 @@ export function FrameCard({ frame, apiBase }: Props) {
 
   const uploadMutation = useUploadFrameMutation(apiBase, frame.id);
   const paletteQuery = useFramePaletteQuery(apiBase, frame.id);
+  const metadataQuery = useFrameMetadataQuery(apiBase, frame.id);
+  const [metadataOpen, setMetadataOpen] = useState(false);
 
   const cycleDithering = (delta: number) => {
     const DITHER_VALUES = [
@@ -419,6 +426,7 @@ export function FrameCard({ frame, apiBase }: Props) {
         unsaved={unsaved}
         paused={uiState.paused}
         dummy={uiState.dummy}
+        onOpenMetadata={() => setMetadataOpen(true)}
       />
       <CardContent className="flex flex-col gap-3">
         <ImagePreview
@@ -426,6 +434,30 @@ export function FrameCard({ frame, apiBase }: Props) {
           loadingMode={loadingMode}
           alt={frame.id}
         />
+        <Dialog
+          open={metadataOpen}
+          onClose={() => setMetadataOpen(false)}
+          fullWidth
+          maxWidth="md"
+        >
+          <DialogTitle>Metadata for {frame.id}</DialogTitle>
+          <DialogContent dividers>
+            {metadataQuery.isLoading && (
+              <p className="text-sm text-gray-500">Loading…</p>
+            )}
+            {metadataQuery.error && (
+              <p className="text-sm text-red-600">Failed to load metadata</p>
+            )}
+            {metadataQuery.data && (
+              <pre className="text-xs whitespace-pre-wrap break-words">
+                {JSON.stringify(metadataQuery.data, null, 2)}
+              </pre>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setMetadataOpen(false)}>Close</Button>
+          </DialogActions>
+        </Dialog>
         <form
           onSubmit={(e) => {
             e.preventDefault();

@@ -1,4 +1,5 @@
 /target
 /.direnv
 /*.png
+/*.json
 photoframe.toml

@@ -358,3 +358,30 @@ export function useClearFrameMutation(apiBase: string, frameId: string) {
     },
   });
 }
+
+// Frame metadata shape as produced by backend
+export interface FrameMetadata {
+  source_id?: string | null;
+  filename?: string | null;
+  asset_id?: string | null;
+  orientation?: string | null;
+  date_taken?: string | null;
+  immich_metadata?: unknown;
+}
+
+export function useFrameMetadataQuery(apiBase: string, frameId: string) {
+  return useQuery<FrameMetadata>({
+    queryKey: ["metadata", apiBase, frameId],
+    queryFn: () =>
+      defaultFetch<FrameMetadata>(
+        `${apiBase}/frames/${encodeURIComponent(frameId)}/metadata`,
+      ),
+    // Let it update periodically in case next/trigger happened elsewhere
+    refetchInterval: 30_000,
+    // Don't retry aggressively if not found yet
+    retry: (count, err: any) => {
+      // basic control: retry up to 2 times
+      return count < 2;
+    },
+  });
+}

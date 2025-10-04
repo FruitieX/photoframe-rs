@@ -172,8 +172,9 @@ impl FrameScheduler {
             };
 
             if let Some(src) = source_arc
-                && let Ok(Some(meta)) = src.next(desired).await
+                && let Ok(Some(mut meta)) = src.next(desired).await
             {
+                meta.source_id = Some(sid.clone());
                 selected = Some(meta);
                 break;
             }
@@ -190,7 +191,18 @@ impl FrameScheduler {
         if selected.is_none() {
             tracing::warn!(frame = %frame_id, desired = ?desired, "no matching image found for update");
         }
-        info!(frame = %frame_id, desired = ?desired, selected = ?selected, "frame cron triggered");
+        if let Some(meta) = &selected {
+            info!(
+                frame = %frame_id,
+                desired = ?desired,
+                source_id = ?meta.source_id,
+                asset_id = ?meta.id,
+                orientation = ?meta.orientation,
+                "frame cron selected image"
+            );
+        } else {
+            info!(frame = %frame_id, desired = ?desired, "frame cron triggered (no selection)");
+        }
         Ok(())
     }
 
@@ -240,8 +252,9 @@ impl FrameScheduler {
             };
 
             if let Some(src) = source_arc
-                && let Ok(Some(meta)) = src.next(desired).await
+                && let Ok(Some(mut meta)) = src.next(desired).await
             {
+                meta.source_id = Some(sid.clone());
                 selected = Some(meta);
                 break;
             }
@@ -272,10 +285,10 @@ impl FrameScheduler {
         // Provide richer context about the chosen image for observability.
         match &meta.data {
             crate::sources::SourceData::Path(p) => {
-                tracing::info!(frame=%frame_id, path=%p.display(), asset_id=?meta.id, orientation=?meta.orientation, "primed next image");
+                tracing::info!(frame=%frame_id, path=%p.display(), source_id=?meta.source_id, asset_id=?meta.id, orientation=?meta.orientation, "primed next image");
             }
             crate::sources::SourceData::Bytes(_) => {
-                tracing::info!(frame=%frame_id, asset_id=?meta.id, orientation=?meta.orientation, "primed next image");
+                tracing::info!(frame=%frame_id, source_id=?meta.source_id, asset_id=?meta.id, orientation=?meta.orientation, "primed next image");
             }
         }
         Ok(())

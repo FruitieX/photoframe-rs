@@ -256,6 +256,7 @@ pub fn router(state: AppState) -> Router {
         .route("/frames/{id}", patch(patch_frame))
         .route("/frames/{id}/clear", post(clear_frame))
         .route("/frames/{id}/palette", get(frame_palette))
+        .route("/frames/{id}/metadata", get(get_frame_metadata))
         .route("/frames/{id}/intermediate", get(get_intermediate_image))
         .route(
             "/frames/{id}/upload",
@@ -639,6 +640,25 @@ pub async fn get_intermediate_image(Path(frame_id): Path<String>) -> Result<Resp
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(([(header::CONTENT_TYPE, "image/png")], bytes).into_response())
+}
+
+/// Return the last saved metadata JSON for a frame, or 404 if missing.
+pub async fn get_frame_metadata(
+    Path(frame_id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if frame_id.contains('/') || frame_id.contains("..") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let path = std::path::PathBuf::from(format!("{frame_id}_metadata.json"));
+    if !path.exists() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(value))
 }
 
 pub async fn refresh_source(
