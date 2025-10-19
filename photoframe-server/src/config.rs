@@ -260,6 +260,9 @@ pub struct ImmichSource {
     /// Can be either a single filter object or an array of filter objects that get combined.
     #[serde(with = "filters_serde")]
     pub filters: Option<Vec<serde_json::Value>>,
+    /// List of blacklisted asset IDs. These assets will be filtered out.
+    #[serde(default)]
+    pub blacklist: Vec<String>,
 }
 
 mod filters_serde {
@@ -656,5 +659,51 @@ impl ConfigManager {
             }
         }
         Ok(())
+    }
+
+    /// Add an asset ID to an Immich source's blacklist.
+    ///
+    /// Returns Ok(true) if the asset was appended, Ok(false) if it was already present.
+    pub async fn add_immich_blacklist_item(
+        cfg: &SharedConfig,
+        source_id: &str,
+        asset_id: &str,
+    ) -> Result<bool> {
+        let mut guard = cfg.write().await;
+        let sources_tbl = guard.doc["sources"]
+            .as_table_mut()
+            .ok_or_else(|| anyhow::anyhow!("sources table missing"))?;
+        let src = sources_tbl
+            .get_mut(source_id)
+            .ok_or_else(|| anyhow::anyhow!("source '{}' not found", source_id))?;
+        if let Item::Table(tbl) = src {
+            if tbl.get("kind").is_none() {
+                tbl["kind"] = value("immich");
+            }
+            let im = tbl["immich"].or_insert(Item::Table(toml_edit::Table::new()));
+            if let Item::Table(imt) = im {
+                let blacklist_entry =
+                    imt.entry("blacklist")
+                        .or_insert(Item::Value(
+                            toml_edit::Value::Array(toml_edit::Array::new()),
+                        ));
+                if let Item::Value(toml_edit::Value::Array(arr)) = blacklist_entry {
+                    // check for existing entry first
+                    for existing in arr.iter() {
+                        if let toml_edit::Value::String(s) = existing
+                            && s.value() == asset_id
+                        {
+                            return Ok(false);
+                        }
+                    }
+                    arr.push(toml_edit::Value::String(toml_edit::Formatted::new(
+                        asset_id.to_string(),
+                    )));
+                } else {
+                    bail!("immich.blacklist is not an array");
+                }
+            }
+        }
+        Ok(true)
     }
 }

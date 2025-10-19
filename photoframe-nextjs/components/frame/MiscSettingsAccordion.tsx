@@ -15,6 +15,7 @@ import PauseCircleIcon from "@mui/icons-material/PauseCircle";
 import BuildCircleIcon from "@mui/icons-material/BuildCircle";
 import ScreenRotationIcon from "@mui/icons-material/ScreenRotation";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import BlockIcon from "@mui/icons-material/Block";
 
 interface PaletteInfo {
   palette: { input: string; hex: string; rgb: [number, number, number] }[];
@@ -34,6 +35,10 @@ interface Props {
   clearPending: boolean;
   onTrigger: () => void;
   triggerPending: boolean;
+  onBlacklist: (assetId: string, sourceId: string) => void;
+  blacklistPending: boolean;
+  currentAssetId?: string;
+  currentSourceId?: string;
   palette: PaletteInfo | undefined;
 }
 
@@ -52,6 +57,10 @@ export function MiscSettingsAccordion(props: Props) {
     clearPending,
     onTrigger,
     triggerPending,
+    onBlacklist,
+    blacklistPending,
+    currentAssetId,
+    currentSourceId,
     palette,
   } = props;
   const { flip, paused, dummy } = uiState;
@@ -170,6 +179,18 @@ export function MiscSettingsAccordion(props: Props) {
             {uploadPending && (
               <LinearProgress sx={{ width: 100, height: 4, borderRadius: 1 }} />
             )}
+            <Button
+              size="small"
+              startIcon={<BlockIcon fontSize="small" />}
+              onClick={() => {
+                if (currentAssetId && currentSourceId) {
+                  onBlacklist(currentAssetId, currentSourceId);
+                }
+              }}
+              disabled={blacklistPending || !currentAssetId || !currentSourceId}
+            >
+              Blacklist current image
+            </Button>
           </Stack>
 
           {palette ? (

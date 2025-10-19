@@ -96,6 +96,32 @@ export function useSetImmichCredentials(apiBase: string, sourceId: string) {
   });
 }
 
+export function useBlacklistAssetMutation(apiBase: string, frameId: string) {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { asset_id: string; source_id: string }>({
+    mutationFn: async (payload) => {
+      const res = await fetch(
+        `${apiBase}/frames/${frameId}/sources/blacklist`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      // Treat 409 Conflict (already blacklisted) as a non-error for the UI so
+      // the client still re-fetches preview/config and advances the image.
+      if (res.ok) return;
+      if (res.status === 409) return;
+      throw new Error("Blacklist asset failed");
+    },
+    onSuccess: () => {
+      // Invalidate config and metadata queries to reflect changes and trigger new image
+      qc.invalidateQueries({ queryKey: ["config", apiBase] });
+      qc.invalidateQueries({ queryKey: ["metadata", apiBase, frameId] });
+    },
+  });
+}
+
 // (Future) mutation to persist Immich filters could be added here once backend endpoint exists.
 export function useSetImmichFilters(apiBase: string, sourceId: string) {
   const qc = useQueryClient();

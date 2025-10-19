@@ -273,6 +273,12 @@ pub fn router(state: AppState) -> Router {
         .route("/sources/{id}/immich/filters", post(set_immich_filters))
         .route("/sources/{id}/refresh", post(refresh_source))
         .route("/sources/reload", post(reload_sources))
+        .route(
+            "/frames/{id}/sources/blacklist",
+            post(blacklist_source_asset),
+        )
+        .route("/health", get(health_check))
+        .route("/live", get(liveness_probe))
         .with_state(state.clone())
         .layer(cors)
         .layer(trace)
@@ -318,6 +324,16 @@ pub async fn clear_frame(
     }
     let _ = crate::frame::save_prepared(&frame_id, &prepared);
     Ok(StatusCode::ACCEPTED)
+}
+
+// New handler for health check
+pub async fn health_check() -> StatusCode {
+    StatusCode::OK
+}
+
+// New handler for liveness probe
+pub async fn liveness_probe() -> StatusCode {
+    StatusCode::OK
 }
 
 #[derive(serde::Serialize)]
@@ -475,6 +491,52 @@ pub async fn set_immich_filters(
     state
         .scheduler
         .reload_sources()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(StatusCode::OK)
+}
+
+#[derive(Deserialize)]
+pub struct BlacklistSourceAssetPayload {
+    pub asset_id: String,
+    pub source_id: String, // The source ID to which the asset belongs
+}
+
+#[instrument(err, skip_all)]
+pub async fn blacklist_source_asset(
+    Path(frame_id): Path<String>, // frame_id is used to trigger next_frame, not for blacklisting itself
+    State(state): State<AppState>,
+    Json(payload): Json<BlacklistSourceAssetPayload>,
+) -> Result<StatusCode, StatusCode> {
+    // Attempt to add to blacklist. The config manager returns Ok(false) when the
+    // asset was already present in the blacklist.
+    let added = config::ConfigManager::add_immich_blacklist_item(
+        &state.cfg,
+        &payload.source_id,
+        &payload.asset_id,
+    )
+    .await
+    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    if !added {
+        // Already blacklisted
+        return Err(StatusCode::CONFLICT);
+    }
+    config::ConfigManager::save(&state.cfg)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Remove the asset from the scheduler's in-memory Immich cache for the specific source
+    state
+        .scheduler
+        .remove_asset_from_cache_for_source(&payload.source_id, &payload.asset_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Trigger next image for the frame
+    state
+        .scheduler
+        .prime_next_image(&frame_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

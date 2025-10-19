@@ -92,6 +92,12 @@ pub trait ImageSource: Send + Sync + Any {
     fn stats(&self) -> SourceStats {
         SourceStats::default()
     }
+    /// Optionally remove an asset id from the in-memory cache for this source.
+    /// Returns Ok(true) if the asset was removed, Ok(false) if it was not present.
+    /// Default implementation is a no-op returning Ok(false).
+    fn remove_asset_from_cache(&self, _asset_id: &str) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 /// Filesystem implementation (simple, scans once then picks according to order).
@@ -360,11 +366,16 @@ impl ImmichImageSource {
                 }
 
                 let mut new_assets_this_page = 0;
+                let blacklist = &self.cfg.blacklist;
 
                 for item in &arr {
                     let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
                     if id.is_empty() || seen_ids.contains(id) {
                         continue; // Skip duplicates
+                    }
+                    if blacklist.contains(&id.to_string()) {
+                        tracing::trace!(asset_id = %id, "Skipping blacklisted asset");
+                        continue; // Skip blacklisted assets
                     }
                     seen_ids.insert(id.to_string());
 
@@ -530,6 +541,14 @@ impl ImageSource for ImmichImageSource {
             })
             .collect();
         SourceStats::from_entries(&metas)
+    }
+
+    fn remove_asset_from_cache(&self, asset_id: &str) -> Result<bool> {
+        let mut entries = self.entries.write();
+        let before = entries.len();
+        entries.retain(|(id, _orient, _meta)| id != asset_id);
+        let after = entries.len();
+        Ok(before != after)
     }
 }
 

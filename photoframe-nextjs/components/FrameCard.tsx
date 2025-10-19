@@ -14,6 +14,7 @@ import {
   PreviewParams,
   FrameConfig,
   useFlipFrameMutation,
+  useBlacklistAssetMutation,
   TimestampPosition,
   TimestampColor,
   TimestampStrokeColor,
@@ -90,6 +91,7 @@ export function FrameCard({ frame, apiBase }: Props) {
   const dummyMutation = useDummyFrameMutation(apiBase, frame.id);
   const flipMutation = useFlipFrameMutation(apiBase, frame.id);
   const clearMutation = useClearFrameMutation(apiBase, frame.id);
+  const blacklistMutation = useBlacklistAssetMutation(apiBase, frame.id);
 
   const patchMutation = usePatchFrameMutation(apiBase, frame.id, {
     onSuccess: (payload) => {
@@ -553,6 +555,18 @@ export function FrameCard({ frame, apiBase }: Props) {
               clearPending={clearMutation.isPending}
               onTrigger={() => triggerMutation.mutate()}
               triggerPending={triggerMutation.isPending}
+              onBlacklist={(assetId, sourceId) =>
+                blacklistMutation.mutate(
+                  { asset_id: assetId, source_id: sourceId },
+                  {
+                    onSuccess: () =>
+                      requestImageRef.current(uiState.showIntermediate),
+                  },
+                )
+              }
+              blacklistPending={blacklistMutation.isPending}
+              currentAssetId={metadataQuery.data?.asset_id ?? undefined}
+              currentSourceId={metadataQuery.data?.source_id ?? undefined}
               palette={paletteQuery.data}
             />
           </div>

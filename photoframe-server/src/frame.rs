@@ -465,7 +465,7 @@ fn derive_palette(frame: &PhotoFrame) -> Option<Vec<[u8; 3]>> {
             let r = (parsed.red * 255.0).round().clamp(0.0, 255.0) as u8;
             let g = (parsed.green * 255.0).round().clamp(0.0, 255.0) as u8;
             let b = (parsed.blue * 255.0).round().clamp(0.0, 255.0) as u8;
-            tracing::trace!(input=%c, hex=format!("#{:02x}{:02x}{:02x}", r, g, b), r=%r, g=%g, b=%b, "resolved palette color");
+            // tracing::trace!(input=%c, hex=format!("#{:02x}{:02x}{:02x}", r, g, b), r=%r, g=%g, b=%b, "resolved palette color");
             out.push([r, g, b]);
         }
     }

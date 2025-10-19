@@ -217,12 +217,39 @@ impl FrameScheduler {
             let sources_guard = self.sources.read().await;
             sources_guard.get(source_id).cloned()
         };
-
         if let Some(src) = source_arc
             && let Some(im) =
                 (src.as_ref() as &dyn std::any::Any).downcast_ref::<sources::ImmichImageSource>()
         {
             im.refresh().await.ok();
+        }
+        Ok(())
+    }
+
+    /// Remove an asset id from a source's in-memory cache (if present).
+    /// This avoids a full source reload and is useful after blacklisting an asset.
+    pub async fn remove_asset_from_cache_for_source(
+        &self,
+        source_id: &str,
+        asset_id: &str,
+    ) -> Result<()> {
+        let source_arc = {
+            let sources_guard = self.sources.read().await;
+            sources_guard.get(source_id).cloned()
+        };
+
+        if let Some(src) = source_arc {
+            match src.remove_asset_from_cache(asset_id) {
+                Ok(true) => {
+                    tracing::info!(source = %source_id, asset_id = %asset_id, "removed blacklisted asset from source cache")
+                }
+                Ok(false) => {
+                    tracing::debug!(source = %source_id, asset_id = %asset_id, "asset not present in source cache")
+                }
+                Err(e) => {
+                    tracing::warn!(source = %source_id, error = %e, "failed to mutate source cache")
+                }
+            }
         }
         Ok(())
     }
