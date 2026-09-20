@@ -474,6 +474,31 @@ fn derive_palette(frame: &PhotoFrame) -> Option<Vec<[u8; 3]>> {
 
 // Removed custom hex parser in favor of css-color crate.
 
+/// Timeout for establishing a TCP connection to a frame.
+const DEVICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Total timeout for a single push attempt. A panel refresh can legitimately
+/// take a couple of minutes, so allow generous headroom.
+const DEVICE_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+/// TCP keepalive for device connections. Without this, a half-open connection
+/// can linger indefinitely and the retry loop below never gets to run.
+const DEVICE_TCP_KEEPALIVE: Duration = Duration::from_secs(30);
+
+/// Shared HTTP client for pushing images to devices.
+///
+/// Uses explicit timeouts so a wedged or half-open connection always surfaces
+/// as an error and lets the retry logic make progress.
+fn device_http_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(DEVICE_CONNECT_TIMEOUT)
+            .timeout(DEVICE_REQUEST_TIMEOUT)
+            .tcp_keepalive(DEVICE_TCP_KEEPALIVE)
+            .build()
+            .expect("failed to build device HTTP client")
+    })
+}
+
 /// Post a prepared image to the physical frame device.
 pub async fn push_to_device(
     frame_id: &str,
@@ -694,7 +719,7 @@ pub async fn push_to_device(
         return Ok(());
     }
 
-    let client = reqwest::Client::new();
+    let client = device_http_client();
     let url = &frame
         .upload_endpoint
         .clone()
