@@ -49,6 +49,8 @@ jobs:
     name: Build & (optionally) push image
     runs-on: ubuntu-latest
     needs: [check, test, fmt, clippy]
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     permissions:
       packages: write
       contents: read
@@ -103,6 +105,7 @@ jobs:
             type=sha
 
       - name: Build (and push)
+        id: build
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
         with:
           context: .
@@ -112,3 +115,38 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy to homelab
+    needs: build-image
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Skip superseded builds
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$head" != "$GITHUB_SHA" ]]; then
+            echo "A newer commit exists on main, skipping deployment of this build."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to homelab
+        if: steps.check.outputs.enabled == 'true'
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+        with:
+          token: ${{ secrets.HOMELAB_DISPATCH_TOKEN }}
+          repository: FruitieX/homelab
+          event-type: image-update
+          client-payload: |
+            {
+              "image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}",
+              "digest": "${{ needs.build-image.outputs.digest }}",
+              "revision": "${{ github.sha }}"
+            }
