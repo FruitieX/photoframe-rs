@@ -17,32 +17,32 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo check
 
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo test --all --locked
 
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo fmt --all -- --check
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo clippy -- -D warnings
 
   build-image:
@@ -55,7 +55,7 @@ jobs:
       packages: write
       contents: read
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install musl tools
         run: |
@@ -63,7 +63,7 @@ jobs:
           sudo apt-get install -y musl-tools
 
       - name: Setup Node.js
-        uses: actions/setup-node@cd2651c46231bc0d6f48d6b34433b845331235fe # v5
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 'latest'
           cache: 'npm'
@@ -72,27 +72,67 @@ jobs:
       - name: Install Next.js dependencies
         run: npm ci --prefix photoframe-nextjs
 
+      - name: Lint Next.js app
+        run: npm run lint --prefix photoframe-nextjs
+
       - name: Build Next.js app
         run: npm run build --prefix photoframe-nextjs
 
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2
+      - name: Typecheck Next.js app
+        run: npm run typecheck --prefix photoframe-nextjs
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       - name: Build binary (musl)
         run: cargo build --release --target x86_64-unknown-linux-musl
 
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Build image for smoke test
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: photoframe:ci
+
+      # Gates PRs (incl. Renovate automerges) and main before publishing: boots the
+      # image with a dummy frame fed from a local folder, renders an image through the
+      # pipeline and loads the UI in headless Chrome, failing on any console output.
+      - name: Smoke test image
+        run: |
+          docker run -d --rm -p 8080:8080 --name photoframe \
+            -v "$PWD/.github/smoke/photoframe.toml:/app/photoframe.toml:ro" \
+            -v "$PWD/.github/smoke:/photos:ro" photoframe:ci
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/api/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8080/api/live
+          curl -fsS http://127.0.0.1:8080/api/config | grep -q '"smoke"'
+          curl -fsS -X POST http://127.0.0.1:8080/api/frames/smoke/trigger
+          for _ in $(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:8080/api/frames/smoke/metadata && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8080/api/frames/smoke/metadata
+          curl -fsS -X POST -H 'content-type: application/json' -d '{}' \
+            -o "$RUNNER_TEMP/preview.png" http://127.0.0.1:8080/api/frames/smoke/preview
+          file "$RUNNER_TEMP/preview.png" | grep -q 'PNG image data'
+          for page in / /frames /sources; do
+            google-chrome --headless=new --no-sandbox --enable-logging=stderr --v=0 \
+              --virtual-time-budget=5000 --dump-dom "http://127.0.0.1:8080$page" \
+              > "$RUNNER_TEMP/dom.html" 2> "$RUNNER_TEMP/chrome.log"
+            grep -q 'photoframe-rs' "$RUNNER_TEMP/dom.html"
+            if grep ':CONSOLE' "$RUNNER_TEMP/chrome.log"; then exit 1; fi
+          done
+          docker stop photoframe
+
       - name: Login to GHCR
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
-
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f # v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
@@ -106,7 +146,7 @@ jobs:
 
       - name: Build (and push)
         id: build
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           cache-from: type=gha
