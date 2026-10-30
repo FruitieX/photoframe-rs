@@ -18,7 +18,10 @@ in
   with nixpkgs;
   stdenv.mkDerivation {
     name = "env";
+    # Build C dependencies (aws-lc-sys) against musl headers, like musl-tools in CI.
+    CC_x86_64_unknown_linux_musl = "${musl.dev}/bin/musl-gcc";
     buildInputs = [
       rustToolchain
+      nodejs_26
     ];
   }

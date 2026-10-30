@@ -56,7 +56,7 @@ pub fn dither_image(
 
 fn naive_quantize(pixels: &mut [u8], palette: &[[u8; 3]]) {
     let pal_luma: Vec<f32> = palette.iter().map(|c| luma(c[0], c[1], c[2])).collect();
-    for px in pixels.chunks_exact_mut(4) {
+    for px in pixels.as_chunks_mut::<4>().0 {
         let (r, g, b, a) = (px[0], px[1], px[2], px[3]);
         let lum = luma(r, g, b);
         let mut best = 0usize;
@@ -887,7 +887,7 @@ mod tests {
         ];
         dither_image(&mut img, 16, 16, &palette, Some("floyd_steinberg"));
         // all pixels should be from palette
-        for px in img.chunks_exact(4) {
+        for px in img.as_chunks::<4>().0 {
             assert!(
                 palette
                     .iter()
@@ -910,7 +910,7 @@ mod tests {
         }
         let palette = [[0, 0, 0], [255, 255, 255], [255, 0, 0], [0, 255, 0]];
         dither_image(&mut img, 8, 8, &palette, Some("ordered_bayer_8"));
-        for px in img.chunks_exact(4) {
+        for px in img.as_chunks::<4>().0 {
             assert!(
                 palette
                     .iter()
@@ -933,7 +933,7 @@ mod tests {
         }
         let palette = [[0, 0, 0], [255, 255, 255], [255, 0, 0], [0, 255, 0]];
         dither_image(&mut img, 8, 8, &palette, Some("stark_8"));
-        for px in img.chunks_exact(4) {
+        for px in img.as_chunks::<4>().0 {
             assert!(
                 palette
                     .iter()
@@ -956,7 +956,7 @@ mod tests {
         }
         let palette = [[0, 0, 0], [255, 255, 255], [255, 0, 0], [0, 255, 0]];
         dither_image(&mut img, 8, 8, &palette, Some("yliluoma1_8"));
-        for px in img.chunks_exact(4) {
+        for px in img.as_chunks::<4>().0 {
             assert!(
                 palette
                     .iter()
@@ -964,7 +964,7 @@ mod tests {
             );
         }
         dither_image(&mut img, 8, 8, &palette, Some("yliluoma2_8"));
-        for px in img.chunks_exact(4) {
+        for px in img.as_chunks::<4>().0 {
             assert!(
                 palette
                     .iter()
@@ -987,7 +987,7 @@ mod tests {
         }
         let palette = [[0, 0, 0], [255, 255, 255], [255, 0, 0], [0, 255, 0]];
         dither_image(&mut img, 32, 32, &palette, Some("ordered_blue_256"));
-        for px in img.chunks_exact(4) {
+        for px in img.as_chunks::<4>().0 {
             assert!(
                 palette
                     .iter()

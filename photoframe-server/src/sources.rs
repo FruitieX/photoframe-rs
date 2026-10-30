@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use glob::glob;
 use image::ImageDecoder;
 use rand::seq::{IndexedRandom, SliceRandom};
-use rand::{Rng, rng};
+use rand::{RngExt, rng};
 use std::any::Any;
 use std::fmt::Debug;
 use std::path::PathBuf;
