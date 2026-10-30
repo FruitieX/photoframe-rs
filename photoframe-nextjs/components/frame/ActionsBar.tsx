@@ -26,7 +26,7 @@ export function ActionsBar({
   pushPending,
 }: Props) {
   return (
-    <Stack direction="row" gap={2} flexWrap={"wrap"}>
+    <Stack direction="row" sx={{ gap: 2, flexWrap: "wrap" }}>
       <Button
         size="small"
         type="button"

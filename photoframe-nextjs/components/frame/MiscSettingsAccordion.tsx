@@ -149,8 +149,7 @@ export function MiscSettingsAccordion(props: Props) {
           <Stack
             direction="column"
             spacing={1}
-            alignItems="flex-start"
-            flexWrap="wrap"
+            sx={{ alignItems: "flex-start", flexWrap: "wrap" }}
           >
             <Button
               size="small"

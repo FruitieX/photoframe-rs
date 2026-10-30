@@ -24,7 +24,7 @@ export function FrameHeader({
     <CardHeader
       title={title}
       action={
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
           {unsaved && <Chip size="small" color="warning" label="Unsaved" />}
           {paused && (
             <Chip

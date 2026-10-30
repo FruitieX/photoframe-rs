@@ -139,12 +139,12 @@ export function AdjustmentsAccordion(props: Props) {
               marks
             />
           </div>
-          <Stack direction="row" spacing={1} alignItems="flex-end">
+          <Stack direction="row" spacing={1} sx={{ alignItems: "flex-end" }}>
             <div className="flex flex-col">
               <Typography variant="caption" gutterBottom>
                 Dithering
               </Typography>
-              <Stack direction="row" spacing={1} alignItems="center">
+              <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
                 <Select
                   size="small"
                   value={dithering}

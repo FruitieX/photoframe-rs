@@ -48,19 +48,20 @@ interface Props {
 }
 
 export function FrameCard({ frame, apiBase }: Props) {
-  const original = useRef({
+  // Last saved adjustments; drives the "unsaved" indicator and Revert.
+  const [original, setOriginal] = useState(() => ({
     dithering: frame.dithering || "none",
     brightness: frame.adjustments?.brightness ?? 0,
     contrast: frame.adjustments?.contrast ?? 0,
     saturation: frame.adjustments?.saturation ?? 0,
     sharpness: frame.adjustments?.sharpness ?? 0,
-  });
+  }));
   const [uiState, setUiState] = useState<FrameUiState>({
-    dithering: original.current.dithering,
-    brightness: original.current.brightness,
-    contrast: original.current.contrast,
-    saturation: original.current.saturation,
-    sharpness: original.current.sharpness,
+    dithering: original.dithering,
+    brightness: original.brightness,
+    contrast: original.contrast,
+    saturation: original.saturation,
+    sharpness: original.sharpness,
     left: frame.overscan?.left ?? 0,
     right: frame.overscan?.right ?? 0,
     top: frame.overscan?.top ?? 0,
@@ -95,7 +96,7 @@ export function FrameCard({ frame, apiBase }: Props) {
 
   const patchMutation = usePatchFrameMutation(apiBase, frame.id, {
     onSuccess: (payload) => {
-      original.current = payload;
+      setOriginal(payload);
     },
   });
 
@@ -183,13 +184,13 @@ export function FrameCard({ frame, apiBase }: Props) {
 
   // Keep a stable reference to the latest requestImage
   const requestImageRef = useRef(requestImage);
-  requestImageRef.current = requestImage;
+  useEffect(() => {
+    requestImageRef.current = requestImage;
+  });
 
   // Kick off an initial preview request on mount so the image shows without user interaction.
   useEffect(() => {
     requestImageRef.current(false);
-    // run only once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const triggerMutation = useTriggerFrameMutation(apiBase, frame.id, {
@@ -347,11 +348,11 @@ export function FrameCard({ frame, apiBase }: Props) {
   function onCancel() {
     setUiState({
       ...uiState,
-      dithering: original.current.dithering,
-      brightness: original.current.brightness,
-      contrast: original.current.contrast,
-      saturation: original.current.saturation,
-      sharpness: original.current.sharpness,
+      dithering: original.dithering,
+      brightness: original.brightness,
+      contrast: original.contrast,
+      saturation: original.saturation,
+      sharpness: original.sharpness,
       left: frame.overscan?.left ?? 0,
       right: frame.overscan?.right ?? 0,
       top: frame.overscan?.top ?? 0,
@@ -378,11 +379,11 @@ export function FrameCard({ frame, apiBase }: Props) {
   }
 
   const unsaved =
-    uiState.dithering !== original.current.dithering ||
-    uiState.brightness !== original.current.brightness ||
-    uiState.contrast !== original.current.contrast ||
-    uiState.saturation !== original.current.saturation ||
-    uiState.sharpness !== original.current.sharpness ||
+    uiState.dithering !== original.dithering ||
+    uiState.brightness !== original.brightness ||
+    uiState.contrast !== original.contrast ||
+    uiState.saturation !== original.saturation ||
+    uiState.sharpness !== original.sharpness ||
     uiState.left !== (frame.overscan?.left ?? 0) ||
     uiState.right !== (frame.overscan?.right ?? 0) ||
     uiState.top !== (frame.overscan?.top ?? 0) ||

@@ -166,7 +166,7 @@ export interface FramePatchPayload extends FrameAdjustments {
   timestamp_stroke_color?: TimestampStrokeColor;
   timestamp_format?: string;
 }
-export interface PreviewParams extends FramePatchPayload {}
+export type PreviewParams = FramePatchPayload;
 
 const defaultFetch = async <T>(url: string, init?: RequestInit): Promise<T> => {
   const res = await fetch(url, init);
@@ -405,9 +405,6 @@ export function useFrameMetadataQuery(apiBase: string, frameId: string) {
     // Let it update periodically in case next/trigger happened elsewhere
     refetchInterval: 30_000,
     // Don't retry aggressively if not found yet
-    retry: (count, err: any) => {
-      // basic control: retry up to 2 times
-      return count < 2;
-    },
+    retry: 2,
   });
 }

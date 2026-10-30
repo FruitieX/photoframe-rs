@@ -183,7 +183,7 @@ export function TimestampAccordion({
                       timestampBannerHeight: parseInt(e.target.value) || 0,
                     })
                   }
-                  inputProps={{ min: 0 }}
+                  slotProps={{ htmlInput: { min: 0 } }}
                 />
               )}
 

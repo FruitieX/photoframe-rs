@@ -33,7 +33,11 @@ export default function SourcesPage() {
           <Grid key={id} size={12}>
             <Paper className="p-3">
               <Stack spacing={1}>
-                <Stack direction="row" spacing={1} alignItems="center">
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{ alignItems: "center" }}
+                >
                   <Typography variant="h6" className="font-medium">
                     {id}
                   </Typography>
@@ -80,22 +84,19 @@ function ImmichInlineOnboard({
   );
   const [filtersError, setFiltersError] = React.useState<string | null>(null);
 
-  // Prefill from config when it loads/changes
+  // Prefill once from config when it loads (adjusting state during render,
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
   const [hasInitialized, setHasInitialized] = React.useState(false);
-
-  React.useEffect(() => {
-    if (current && !hasInitialized) {
-      if (current.base_url) setBaseUrl(current.base_url);
-      if (current.api_key) setApiKey(current.api_key);
-      if (current.filters) {
-        try {
-          const pretty = JSON.stringify(current.filters, null, 2);
-          setFiltersText(pretty);
-        } catch {}
-      }
-      setHasInitialized(true);
+  if (current && !hasInitialized) {
+    setHasInitialized(true);
+    if (current.base_url) setBaseUrl(current.base_url);
+    if (current.api_key) setApiKey(current.api_key);
+    if (current.filters) {
+      try {
+        setFiltersText(JSON.stringify(current.filters, null, 2));
+      } catch {}
     }
-  }, [current, hasInitialized]);
+  }
 
   const validate = React.useCallback((txt: string) => {
     try {
@@ -151,23 +152,25 @@ function ImmichInlineOnboard({
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           className="flex-1"
-          InputProps={{
-            endAdornment: (
-              <InputAdornment position="end">
-                <IconButton
-                  aria-label={showKey ? "Hide API key" : "Show API key"}
-                  onClick={() => setShowKey((v) => !v)}
-                  edge="end"
-                  size="small"
-                >
-                  {showKey ? (
-                    <VisibilityOff fontSize="small" />
-                  ) : (
-                    <Visibility fontSize="small" />
-                  )}
-                </IconButton>
-              </InputAdornment>
-            ),
+          slotProps={{
+            input: {
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    aria-label={showKey ? "Hide API key" : "Show API key"}
+                    onClick={() => setShowKey((v) => !v)}
+                    edge="end"
+                    size="small"
+                  >
+                    {showKey ? (
+                      <VisibilityOff fontSize="small" />
+                    ) : (
+                      <Visibility fontSize="small" />
+                    )}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            },
           }}
         />
         <Button

@@ -1,11 +1,6 @@
-"use client";
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { redirect } from "next/navigation";
 
-export default function HomeRedirect() {
-  const router = useRouter();
-  useEffect(() => {
-    router.replace("/frames");
-  }, [router]);
-  return null;
+// Prerendered as a static redirect to the frames page.
+export default function Home() {
+  redirect("/frames");
 }
