@@ -1,0 +1,24 @@
+# Config for the container smoke test in CI: one dummy frame (never uploads)
+# fed from a local folder, no network access needed.
+[server]
+bind_address = "0.0.0.0:8080"
+
+[photoframes.smoke]
+dummy = true
+upload_endpoint = "http://127.0.0.1:9/upload"
+orientation = "landscape"
+panel_width = 800
+panel_height = 480
+scaling = "cover"
+output_format = "png"
+dithering = "floyd_steinberg"
+source_ids = ["local"]
+update_cron = "0 0 7-23 * * *"
+supported_colors = ["#000000", "#ffffff", "#ff0000", "#00ff00", "#0000ff", "#ffff00"]
+
+[sources.local]
+kind = "filesystem"
+
+[sources.local.filesystem]
+glob = "/photos/*.png"
+order = "random"

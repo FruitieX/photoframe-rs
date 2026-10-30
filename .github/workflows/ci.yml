@@ -102,9 +102,10 @@ jobs:
       # pipeline and loads the UI in headless Chrome, failing on any console output.
       - name: Smoke test image
         run: |
-          docker run -d --rm -p 8080:8080 --name photoframe \
-            -v "$PWD/.github/smoke/photoframe.toml:/app/photoframe.toml:ro" \
+          docker run -d -p 8080:8080 --name photoframe \
+            -v "$PWD/.github/smoke/smoke.toml:/app/photoframe.toml:ro" \
             -v "$PWD/.github/smoke:/photos:ro" photoframe:ci
+          trap 'docker logs photoframe || true' ERR
           for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/api/health && break; sleep 1; done
           curl -fsS http://127.0.0.1:8080/api/live
           curl -fsS http://127.0.0.1:8080/api/config | grep -q '"smoke"'
