@@ -2,4 +2,5 @@
 /.direnv
 /*.png
 /*.json
+!/t3.json
 photoframe.toml
