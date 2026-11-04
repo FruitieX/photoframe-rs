@@ -209,6 +209,8 @@ impl ImageSource for FilesystemImageSource {
 }
 
 pub struct ImmichImageSource {
+    /// Config key of this source, used to label its metrics.
+    pub source_id: String,
     pub cfg: ImmichSource,
     pub entries: parking_lot::RwLock<Vec<(String, Orientation, serde_json::Value)>>, // asset_id + orientation + full metadata
     pub last_list: AtomicU64, // unix seconds of last listing, 0 = never
@@ -216,8 +218,9 @@ pub struct ImmichImageSource {
 }
 
 impl ImmichImageSource {
-    pub fn new(cfg: &ImmichSource) -> Result<Self> {
+    pub fn new(source_id: &str, cfg: &ImmichSource) -> Result<Self> {
         Ok(Self {
+            source_id: source_id.to_string(),
             cfg: cfg.clone(),
             entries: parking_lot::RwLock::new(Vec::new()),
             last_list: AtomicU64::new(0),
@@ -285,10 +288,24 @@ impl ImmichImageSource {
             );
 
             // Defaults
-            // Use a generic page token to support cursor-based pagination (nextPage: String|null).
-            // If the filter specified an explicit page, start from there; otherwise omit 'page' on first call.
-            let mut page_token: Option<serde_json::Value> = base.get("page").cloned();
-            let size: u32 = base.get("size").and_then(|v| v.as_u64()).unwrap_or(1000) as u32;
+            // Pagination: Immich >= 3.2 returns `nextCursor` (sent back as `cursor`);
+            // older servers return `nextPage`, a string that must be sent back as an
+            // integer `page`. If the filter specifies a page or cursor, start there.
+            let mut page_param: Option<(&'static str, serde_json::Value)> =
+                if let Some(c) = base.remove("cursor").filter(|c| !c.is_null()) {
+                    Some(("cursor", c))
+                } else {
+                    base.remove("page")
+                        .and_then(|p| page_number(&p))
+                        .map(|p| ("page", p))
+                };
+            // Immich requires an integer size between 1 and 1000.
+            let size: u32 = base
+                .get("size")
+                .and_then(page_number)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1000)
+                .clamp(1, 1000) as u32;
             if !base.contains_key("withExif") {
                 base.insert("withExif".to_string(), serde_json::Value::Bool(true));
             }
@@ -308,11 +325,9 @@ impl ImmichImageSource {
                     break;
                 }
                 let mut body_map = base.clone();
-                // Only include 'page' when we have a token; otherwise let API start from first page.
-                if let Some(tok) = &page_token {
-                    body_map.insert("page".to_string(), tok.clone());
-                } else {
-                    body_map.remove("page");
+                // Only include 'page'/'cursor' after the first page; otherwise let the API start from the beginning.
+                if let Some((key, value)) = &page_param {
+                    body_map.insert(key.to_string(), value.clone());
                 }
                 body_map.insert("size".to_string(), serde_json::Value::Number(size.into()));
                 let body = serde_json::Value::Object(body_map);
@@ -320,24 +335,31 @@ impl ImmichImageSource {
                 tracing::trace!(
                     filter_idx,
                     page_num = fetched_pages + 1,
-                    ?page_token,
+                    ?page_param,
                     size,
                     total_assets_found = all_entries.len(),
                     "Fetching Immich assets page"
                 );
 
-                let resp = client
+                let resp = match client
                     .post(&url)
                     .header("x-api-key", self.cfg.api_key.clone().unwrap_or_default())
                     .json(&body)
                     .send()
                     .await
-                    .context("immich search assets")?;
+                {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        crate::metrics::record_source_error(&self.source_id, "search");
+                        return Err(e).context("immich search assets");
+                    }
+                };
 
                 if !resp.status().is_success() {
                     let status = resp.status();
                     let text = resp.text().await.unwrap_or_default();
-                    tracing::warn!(%status, body=%text, "immich search assets failed for filter");
+                    crate::metrics::record_source_error(&self.source_id, "search");
+                    tracing::warn!(source = %self.source_id, %status, body=%text, "immich search assets failed for filter");
                     break; // stop paging for this filter
                 }
 
@@ -427,18 +449,14 @@ impl ImmichImageSource {
                 );
 
                 fetched_pages += 1;
-                // Advance using nextPage token when available; stop if null/missing.
-                let next_page_val = assets_obj
-                    .and_then(|v| v.get("nextPage"))
-                    .cloned()
-                    .or_else(|| items.get("nextPage").cloned());
-                match next_page_val {
-                    Some(v) if !v.is_null() => {
-                        page_token = Some(v);
+                // Advance using nextCursor/nextPage when available; stop if null/missing.
+                match next_page_param(assets_obj.unwrap_or(&items)) {
+                    Some(next) => {
+                        page_param = Some(next);
                         tracing::trace!(
                             filter_idx,
                             page_num = fetched_pages + 1,
-                            ?page_token,
+                            ?page_param,
                             "Found next page token, continuing pagination"
                         );
                     }
@@ -575,6 +593,8 @@ impl ImmichImageSource {
             .await?;
 
         if !thumb_resp.status().is_success() {
+            crate::metrics::record_source_error(&self.source_id, "fetch");
+            tracing::warn!(source = %self.source_id, asset_id = %asset_id, status = %thumb_resp.status(), "immich thumbnail fetch failed");
             return Ok(None);
         }
 
@@ -643,9 +663,31 @@ impl ImmichImageSource {
     }
 }
 
+/// Coerce a page number given as a JSON number or numeric string to a number.
+fn page_number(v: &serde_json::Value) -> Option<serde_json::Value> {
+    match v {
+        serde_json::Value::Number(n) => n.as_u64().map(Into::into),
+        serde_json::Value::String(s) => s.trim().parse::<u64>().ok().map(Into::into),
+        _ => None,
+    }
+}
+
+/// Pagination parameter for the next Immich search request, from a
+/// `SearchAssetResponseDto`: `cursor` (Immich >= 3.2) or an integer `page`.
+fn next_page_param(assets: &serde_json::Value) -> Option<(&'static str, serde_json::Value)> {
+    if let Some(cursor) = assets.get("nextCursor").filter(|c| c.is_string()) {
+        return Some(("cursor", cursor.clone()));
+    }
+    assets
+        .get("nextPage")
+        .and_then(page_number)
+        .map(|page| ("page", page))
+}
+
 /// Factory creating concrete sources from config enum.
 /// Factory creating a concrete boxed `ImageSource` from a typed config enum value.
-pub fn build_source(src: &Source) -> Result<Box<dyn ImageSource>> {
+/// `id` is the source's key in the config, used to label its metrics.
+pub fn build_source(id: &str, src: &Source) -> Result<Box<dyn ImageSource>> {
     match src {
         Source::Filesystem { filesystem } => {
             let cfg = filesystem.clone().unwrap_or_default();
@@ -653,8 +695,57 @@ pub fn build_source(src: &Source) -> Result<Box<dyn ImageSource>> {
         }
         Source::Immich { immich } => {
             let cfg = immich.clone().unwrap_or_default();
-            Ok(Box::new(ImmichImageSource::new(&cfg)?))
+            Ok(Box::new(ImmichImageSource::new(id, &cfg)?))
         }
         Source::Unknown => bail!("unknown source kind"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn next_page_is_sent_as_a_number() {
+        // Immich returns nextPage as a string but only accepts an integer page (servers before
+        // 3.2 send no nextCursor).
+        assert_eq!(
+            next_page_param(&json!({ "items": [], "nextPage": "2" })),
+            Some(("page", json!(2)))
+        );
+        assert_eq!(
+            next_page_param(&json!({ "nextPage": 3 })),
+            Some(("page", json!(3)))
+        );
+    }
+
+    #[test]
+    fn next_cursor_is_preferred() {
+        assert_eq!(
+            next_page_param(&json!({ "nextCursor": "abc", "nextPage": "2" })),
+            Some(("cursor", json!("abc")))
+        );
+        assert_eq!(
+            next_page_param(&json!({ "nextCursor": null, "nextPage": "2" })),
+            Some(("page", json!(2)))
+        );
+    }
+
+    #[test]
+    fn last_page_has_no_next() {
+        assert_eq!(
+            next_page_param(&json!({ "nextCursor": null, "nextPage": null })),
+            None
+        );
+        assert_eq!(next_page_param(&json!({})), None);
+    }
+
+    #[test]
+    fn page_numbers_are_coerced() {
+        assert_eq!(page_number(&json!("5")), Some(json!(5)));
+        assert_eq!(page_number(&json!(5)), Some(json!(5)));
+        assert_eq!(page_number(&json!("x")), None);
+        assert_eq!(page_number(&json!(null)), None);
     }
 }

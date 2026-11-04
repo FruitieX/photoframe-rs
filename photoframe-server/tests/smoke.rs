@@ -17,8 +17,12 @@ fn test_dir() -> PathBuf {
 fn write_config(dir: &std::path::Path) -> PathBuf {
     let photos = dir.join("photos");
     std::fs::create_dir_all(&photos).unwrap();
-    let asset = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/256x256_blue.png");
-    std::fs::copy(asset, photos.join("blue.png")).unwrap();
+    // Landscape, to match the frame's orientation.
+    let asset = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../.github/smoke/landscape.png"
+    );
+    std::fs::copy(asset, photos.join("landscape.png")).unwrap();
 
     let path = dir.join("photoframe.toml");
     std::fs::write(
@@ -56,6 +60,8 @@ order = "random"
 async fn server_answers_health_config_and_frame_routes() {
     let dir = test_dir();
     let cfg_path = write_config(&dir);
+    // Frame updates write their images to the working directory.
+    std::env::set_current_dir(&dir).unwrap();
 
     let cfg = config::ConfigManager::load(Some(cfg_path.clone()))
         .await
@@ -127,6 +133,38 @@ async fn server_answers_health_config_and_frame_routes() {
         saved.contains(r#"update_cron = "0 0 7-23 * * *""#),
         "{saved}"
     );
+
+    // Triggering an update of the dummy frame records a successful update.
+    client
+        .post(format!("{base}/frames/test/trigger"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let res = client
+        .get(base.replace("/api", "/metrics"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    assert!(
+        res.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("text/plain")
+    );
+    let metrics = res.text().await.unwrap();
+    for line in [
+        r#"photoframe_update_attempts_total{frame="test",result="success"} 1"#,
+        r#"photoframe_update_attempts_total{frame="test",result="push_failed"} 0"#,
+        r#"photoframe_update_consecutive_failures{frame="test"} 0"#,
+        r#"photoframe_source_errors_total{kind="search",source="local"} 0"#,
+    ] {
+        assert!(metrics.contains(line), "missing {line} in:\n{metrics}");
+    }
+    assert!(metrics.contains("photoframe_last_update_success_timestamp_seconds{frame=\"test\"}"));
 
     let missing = client
         .get(format!("{base}/frames/nope/palette"))

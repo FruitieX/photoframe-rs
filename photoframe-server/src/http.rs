@@ -284,7 +284,10 @@ pub fn router(state: AppState) -> Router {
         .layer(trace)
         .layer(middleware::from_fn(log_error_responses));
 
-    let app = Router::new().nest("/api", api);
+    // Prometheus scrape endpoint, outside /api so scrapes are not request-logged.
+    let app = Router::new()
+        .nest("/api", api)
+        .route("/metrics", get(metrics));
 
     #[cfg(feature = "embed_ui")]
     let app = app
@@ -324,6 +327,17 @@ pub async fn clear_frame(
     }
     let _ = crate::frame::save_prepared(&frame_id, &prepared);
     Ok(StatusCode::ACCEPTED)
+}
+
+/// Prometheus metrics in the text exposition format.
+pub async fn metrics() -> impl IntoResponse {
+    (
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        crate::metrics::render(),
+    )
 }
 
 // New handler for health check

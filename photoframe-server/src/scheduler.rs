@@ -1,3 +1,4 @@
+use crate::metrics::{self, UpdateResult};
 use crate::{config, frame, sources};
 use anyhow::Result;
 use chrono_tz::Tz;
@@ -54,8 +55,9 @@ impl FrameScheduler {
         let snapshot = config::ConfigManager::to_struct(cfg).await?;
         let mut map: SourcesMap = HashMap::new();
         for (id, src_cfg) in snapshot.sources.iter() {
-            match sources::build_source(src_cfg) {
+            match sources::build_source(id, src_cfg) {
                 Ok(built) => {
+                    metrics::init_source(id);
                     map.insert(id.clone(), Arc::new(built));
                 }
                 Err(e) => {
@@ -86,6 +88,7 @@ impl FrameScheduler {
         let timezone = Self::get_timezone()?;
 
         for (frame_id, frame) in cfg_snapshot.photoframes.iter() {
+            metrics::init_frame(frame_id);
             if let Some(cron) = &frame.update_cron {
                 let frame_id_clone = frame_id.clone();
                 let shared = Arc::clone(&self.cfg);
@@ -171,26 +174,42 @@ impl FrameScheduler {
                 sources_guard.get(sid).cloned()
             };
 
-            if let Some(src) = source_arc
-                && let Ok(Some(mut meta)) = src.next(desired).await
-            {
-                meta.source_id = Some(sid.clone());
-                selected = Some(meta);
-                break;
+            if let Some(src) = source_arc {
+                match src.next(desired).await {
+                    Ok(Some(mut meta)) => {
+                        meta.source_id = Some(sid.clone());
+                        selected = Some(meta);
+                        break;
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        metrics::record_source_error(sid, "fetch");
+                        tracing::warn!(frame = %frame_id, source = %sid, error = %e, "source failed to provide an image");
+                    }
+                }
             }
         }
         if f.source_ids.is_empty() {
             tracing::warn!(frame = %frame_id, "no sources configured for frame");
         }
-        if let Some(meta) = &selected {
+        let result = if let Some(meta) = &selected {
             let limits = cfg_now.image_limits.as_ref();
-            if let Err(e) = crate::frame::process_and_push(frame_id, f, meta, limits).await {
-                tracing::warn!(frame = %frame_id, error = %e, "failed to push image to frame");
+            match crate::frame::process_and_push(frame_id, f, meta, limits).await {
+                Ok(()) => UpdateResult::Success,
+                Err(e) if e.downcast_ref::<frame::PushError>().is_some() => {
+                    tracing::warn!(frame = %frame_id, error = %format!("{e:#}"), "failed to push image to frame");
+                    UpdateResult::PushFailed
+                }
+                Err(e) => {
+                    tracing::warn!(frame = %frame_id, error = %format!("{e:#}"), "failed to prepare image for frame");
+                    UpdateResult::Error
+                }
             }
-        }
-        if selected.is_none() {
+        } else {
             tracing::warn!(frame = %frame_id, desired = ?desired, "no matching image found for update");
-        }
+            UpdateResult::NoImage
+        };
+        metrics::record_update(frame_id, result);
         if let Some(meta) = &selected {
             info!(
                 frame = %frame_id,

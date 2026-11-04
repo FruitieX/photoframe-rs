@@ -112,6 +112,7 @@ jobs:
           curl -fsS -X POST http://127.0.0.1:8080/api/frames/smoke/trigger
           for _ in $(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:8080/api/frames/smoke/metadata && break; sleep 1; done
           curl -fsS http://127.0.0.1:8080/api/frames/smoke/metadata
+          curl -fsS http://127.0.0.1:8080/metrics | grep -q 'photoframe_update_attempts_total{frame="smoke",result="success"} 1'
           curl -fsS -X POST -H 'content-type: application/json' -d '{}' \
             -o "$RUNNER_TEMP/preview.png" http://127.0.0.1:8080/api/frames/smoke/preview
           file "$RUNNER_TEMP/preview.png" | grep -q 'PNG image data'

@@ -479,6 +479,9 @@ const DEVICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Total timeout for a single push attempt. A panel refresh can legitimately
 /// take a couple of minutes, so allow generous headroom.
 const DEVICE_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+// E-ink refreshes take ~40 s before the device answers; a slow but
+// successful push must never count as a timeout.
+const _: () = assert!(DEVICE_REQUEST_TIMEOUT.as_secs() >= 120);
 /// TCP keepalive for device connections. Without this, a half-open connection
 /// can linger indefinitely and the retry loop below never gets to run.
 const DEVICE_TCP_KEEPALIVE: Duration = Duration::from_secs(30);
@@ -725,76 +728,119 @@ pub async fn push_to_device(
         .clone()
         .context("missing upload_endpoint")?;
     let transport = frame.upload_transport.unwrap_or(UploadTransport::Raw);
+    let file_name = match output_format {
+        OutputFormat::Png => "image.png",
+        OutputFormat::Packed4bpp => "image.bin",
+    };
 
-    // Retry up to 5 times with exponential backoff starting at 20s.
-    let max_attempts = 5u32;
-    let mut delay = Duration::from_secs(20);
-    for attempt in 1..=max_attempts {
+    let result = send_with_retries(
+        frame_id,
+        url,
+        DEVICE_MAX_ATTEMPTS,
+        DEVICE_RETRY_INITIAL_DELAY,
+        || async {
+            match transport {
+                UploadTransport::Raw => {
+                    client
+                        .post(url)
+                        .header(reqwest::header::CONTENT_TYPE, content_type)
+                        .body(body_bytes.clone())
+                        .send()
+                        .await
+                }
+                UploadTransport::Multipart => {
+                    let part = reqwest::multipart::Part::bytes(body_bytes.clone())
+                        .file_name(file_name)
+                        .mime_str(content_type)
+                        .expect("content_type is a valid static mime type");
+                    let form = reqwest::multipart::Form::new().part("file", part);
+                    client.post(url).multipart(form).send().await
+                }
+            }
+        },
+    )
+    .await;
+    match &result {
+        Ok(()) => crate::metrics::record_push_success(frame_id),
+        Err(e) => crate::metrics::record_push_failure(frame_id, e.reason),
+    }
+    result.map_err(anyhow::Error::new)
+}
+
+/// Attempts per push before giving up.
+const DEVICE_MAX_ATTEMPTS: u32 = 5;
+/// Wait before the first retry; doubles after each failed attempt.
+const DEVICE_RETRY_INITIAL_DELAY: Duration = Duration::from_secs(20);
+
+/// A push to a device that failed after all retries.
+#[derive(Debug)]
+pub struct PushError {
+    /// Why the last attempt failed.
+    pub reason: crate::metrics::PushFailureReason,
+    pub attempts: u32,
+    message: String,
+}
+
+impl std::fmt::Display for PushError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "upload failed after {} attempts ({}): {}",
+            self.attempts,
+            self.reason.as_str(),
+            self.message
+        )
+    }
+}
+
+impl std::error::Error for PushError {}
+
+/// Send a request built by `send` until the device answers with 2xx, retrying
+/// with exponential backoff. Every failed attempt is counted in
+/// `photoframe_push_attempt_failures_total`; the caller records the final outcome.
+async fn send_with_retries<F, Fut>(
+    frame_id: &str,
+    url: &str,
+    max_attempts: u32,
+    initial_delay: Duration,
+    mut send: F,
+) -> std::result::Result<(), PushError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = reqwest::Result<reqwest::Response>>,
+{
+    use crate::metrics::{PushFailureReason, record_push_attempt_failure};
+    let mut delay = initial_delay;
+    let mut attempt = 1;
+    loop {
         tracing::info!(frame=%frame_id, attempt=%attempt, url=%url, "pushing image to frame");
-
-        let send_result: anyhow::Result<reqwest::Response> = match transport {
-            UploadTransport::Raw => {
-                let bytes = body_bytes.clone();
-                client
-                    .post(url)
-                    .header(reqwest::header::CONTENT_TYPE, content_type)
-                    .body(bytes)
-                    .send()
-                    .await
-                    .map_err(|e| e.into())
+        let (reason, message) = match send().await {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::info!(frame=%frame_id, status=%resp.status().as_u16(), "push succeeded");
+                return Ok(());
             }
-            UploadTransport::Multipart => {
-                let bytes = body_bytes.clone();
-                let part = reqwest::multipart::Part::bytes(bytes)
-                    .file_name(match output_format {
-                        OutputFormat::Png => "image.png",
-                        OutputFormat::Packed4bpp => "image.bin",
-                    })
-                    .mime_str(content_type)
-                    .map_err(|e| anyhow::anyhow!("invalid mime '{}': {e}", content_type))?;
-                let form = reqwest::multipart::Form::new().part("file", part);
-                client
-                    .post(url)
-                    .multipart(form)
-                    .send()
-                    .await
-                    .map_err(|e| e.into())
-            }
+            Ok(resp) => (
+                PushFailureReason::HttpStatus,
+                format!("device responded with status {}", resp.status()),
+            ),
+            Err(e) => (
+                PushFailureReason::from_reqwest(&e),
+                format!("{:#}", anyhow::Error::new(e)),
+            ),
         };
-
-        match send_result {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    tracing::info!(frame=%frame_id, status=%resp.status().as_u16(), "push succeeded");
-                    return Ok(());
-                }
-                let status = resp.status();
-                if attempt >= max_attempts {
-                    anyhow::bail!(
-                        "device responded with status {} after {} attempts",
-                        status,
-                        attempt
-                    );
-                } else {
-                    tracing::warn!(frame=%frame_id, attempt=%attempt, status=%status.as_u16(), wait_secs=%delay.as_secs(), "device responded with non-success; retrying");
-                }
-            }
-            Err(e) => {
-                if attempt >= max_attempts {
-                    return Err(e)
-                        .with_context(|| format!("upload failed after {} attempts", attempt));
-                } else {
-                    tracing::warn!(frame=%frame_id, attempt=%attempt, error=%e, wait_secs=%delay.as_secs(), "upload error; retrying");
-                }
-            }
+        record_push_attempt_failure(frame_id, reason);
+        if attempt >= max_attempts {
+            return Err(PushError {
+                reason,
+                attempts: attempt,
+                message,
+            });
         }
-
+        tracing::warn!(frame=%frame_id, attempt=%attempt, reason=%reason.as_str(), error=%message, wait_secs=%delay.as_secs(), "push attempt failed; retrying");
         sleep(delay).await;
         delay = delay.saturating_mul(2);
+        attempt += 1;
     }
-
-    // Should be unreachable due to returns inside the loop
-    anyhow::bail!("upload failed")
 }
 
 /// Convenience: full pipeline from source metadata to pushing to device.
@@ -921,4 +967,102 @@ async fn read_exif_from_base_png(frame_id: &str) -> Option<Vec<u8>> {
     let reader = ImageReader::new(cursor).with_guessed_format().ok()?;
     let mut decoder = reader.into_decoder().ok()?;
     decoder.exif_metadata().ok().flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metrics::{PushFailureReason, push_attempt_failures};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Serve /upload, answering with `statuses[n]` for the n-th request (then 200).
+    async fn device(statuses: Vec<u16>) -> (String, Arc<AtomicU32>) {
+        let hits = Arc::new(AtomicU32::new(0));
+        let counter = hits.clone();
+        let app = axum::Router::new().route(
+            "/upload",
+            axum::routing::post(move || {
+                let n = counter.fetch_add(1, Ordering::SeqCst) as usize;
+                let status = statuses.get(n).copied().unwrap_or(200);
+                async move { axum::http::StatusCode::from_u16(status).unwrap() }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/upload", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (url, hits)
+    }
+
+    async fn push(frame_id: &str, url: &str, attempts: u32) -> std::result::Result<(), PushError> {
+        let client = reqwest::Client::new();
+        send_with_retries(frame_id, url, attempts, Duration::ZERO, || {
+            client.post(url).body("x").send()
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn retried_push_that_succeeds_is_not_a_failure() {
+        let (url, hits) = device(vec![503]).await;
+        push("test-retry-ok", &url, 3).await.unwrap();
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            push_attempt_failures("test-retry-ok", PushFailureReason::HttpStatus),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn non_success_status_fails_after_all_attempts() {
+        let (url, hits) = device(vec![500, 500, 500]).await;
+        let err = push("test-status", &url, 2).await.unwrap_err();
+        assert_eq!(err.reason, PushFailureReason::HttpStatus);
+        assert_eq!(err.attempts, 2);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            push_attempt_failures("test-status", PushFailureReason::HttpStatus),
+            2
+        );
+        // The scheduler recognises the error as a push failure through anyhow.
+        let wrapped = anyhow::Error::new(err).context("processing frame");
+        assert!(wrapped.downcast_ref::<PushError>().is_some());
+    }
+
+    #[tokio::test]
+    async fn unreachable_device_is_a_connect_failure() {
+        // Bind then drop a listener to get a local port nothing listens on.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let url = format!("http://127.0.0.1:{port}/upload");
+        let err = push("test-connect", &url, 1).await.unwrap_err();
+        assert_eq!(err.reason, PushFailureReason::Connect);
+    }
+
+    #[tokio::test]
+    async fn slow_device_times_out() {
+        let app = axum::Router::new().route(
+            "/upload",
+            axum::routing::post(|| async {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                "late"
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/upload", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(200))
+            .build()
+            .unwrap();
+        let err = send_with_retries("test-timeout", &url, 1, Duration::ZERO, || {
+            client.post(&url).body("x").send()
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(err.reason, PushFailureReason::Timeout);
+    }
 }
