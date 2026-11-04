@@ -1,7 +1,7 @@
 use crate::config::{Overscan, Timestamp, TimestampColor, TimestampPosition, TimestampStrokeColor};
+use ab_glyph::{Font, FontRef, Glyph, OutlinedGlyph, PxScale, ScaleFont, point};
 use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, RgbaImage, imageops};
-use rusttype::{Font, Point, PositionedGlyph, Scale};
 
 const DEFAULT_FONT_DATA: &[u8] = include_bytes!("../assets/fonts/DejaVuSans.ttf");
 
@@ -21,11 +21,39 @@ fn get_pixel_mut_checked(img: &mut RgbaImage, x: u32, y: u32) -> Option<&mut Rgb
     }
 }
 
+/// Lays out `text` on a single line with the baseline at y = 0, applying pair
+/// kerning between consecutive glyphs. Returns the glyphs and the total advance width.
+fn layout_line(font: &FontRef, scale: PxScale, text: &str) -> (Vec<Glyph>, f32) {
+    let scaled = font.as_scaled(scale);
+    let mut caret = 0.0f32;
+    let mut last = None;
+    let glyphs = text
+        .chars()
+        .map(|c| {
+            let id = scaled.glyph_id(c);
+            if let Some(prev) = last {
+                caret += scaled.kern(prev, id);
+            }
+            let glyph = id.with_scale_and_position(scale, point(caret, 0.0));
+            caret += scaled.h_advance(id);
+            last = Some(id);
+            glyph
+        })
+        .collect();
+    (glyphs, caret)
+}
+
+/// Height of a line of text (ascent minus descent) at the given scale.
+fn line_height(font: &FontRef, scale: PxScale) -> f32 {
+    let scaled = font.as_scaled(scale);
+    scaled.ascent() - scaled.descent()
+}
+
 struct AutoColorParams<'a> {
     canvas: &'a RgbaImage,
     position: TimestampPosition,
-    scale: Scale,
-    font: &'a Font<'a>,
+    scale: PxScale,
+    font: &'a FontRef<'a>,
     text: &'a str,
     img_width: u32,
     img_height: u32,
@@ -35,18 +63,9 @@ struct AutoColorParams<'a> {
 }
 
 fn determine_auto_text_color(p: AutoColorParams) -> Rgba<u8> {
-    let v_metrics = p.font.v_metrics(p.scale);
-    let glyphs: Vec<PositionedGlyph> = p
-        .font
-        .layout(p.text, p.scale, Point { x: 0.0, y: 0.0 })
-        .collect();
-    let text_width = glyphs
-        .iter()
-        .rev()
-        .map(|g| g.position().x + g.unpositioned().h_metrics().advance_width)
-        .next()
-        .unwrap_or(0.0) as u32;
-    let text_height = (v_metrics.ascent - v_metrics.descent) as u32;
+    let (_, width) = layout_line(p.font, p.scale, p.text);
+    let text_width = width as u32;
+    let text_height = line_height(p.font, p.scale) as u32;
 
     let (text_x, text_y) = calculate_text_position(&LayoutArea {
         position: p.position,
@@ -176,9 +195,9 @@ fn calculate_text_position(p: &LayoutArea) -> (u32, u32) {
 }
 
 struct TextDrawParams<'a> {
-    font: &'a Font<'a>,
+    font: &'a FontRef<'a>,
     text: &'a str,
-    scale: Scale,
+    scale: PxScale,
     position: TimestampPosition,
     color: Rgba<u8>,
     area_y: u32,
@@ -193,23 +212,17 @@ struct TextDrawParams<'a> {
 }
 
 fn render_text_on_canvas(canvas: &mut RgbaImage, p: &TextDrawParams) -> Result<()> {
-    let v_metrics = p.font.v_metrics(p.scale);
-    let glyphs: Vec<PositionedGlyph> = p
-        .font
-        .layout(p.text, p.scale, Point { x: 0.0, y: 0.0 })
-        .collect();
+    let (glyphs, width) = layout_line(p.font, p.scale, p.text);
     if glyphs.is_empty() {
         return Ok(());
     }
+    let outlined: Vec<OutlinedGlyph> = glyphs
+        .into_iter()
+        .filter_map(|g| p.font.outline_glyph(g))
+        .collect();
 
-    let text_width = glyphs
-        .iter()
-        .rev()
-        .map(|g| g.position().x + g.unpositioned().h_metrics().advance_width)
-        .next()
-        .unwrap_or(0.0)
-        .ceil() as u32;
-    let text_height = (v_metrics.ascent - v_metrics.descent).ceil() as u32;
+    let text_width = width.ceil() as u32;
+    let text_height = line_height(p.font, p.scale).ceil() as u32;
 
     // Compute layout with baseline-aware vertical placement to avoid clamping effects.
     let default_overscan = Overscan::default();
@@ -236,7 +249,7 @@ fn render_text_on_canvas(canvas: &mut RgbaImage, p: &TextDrawParams) -> Result<(
     };
 
     // Baseline position: integer pixels
-    let ascent = v_metrics.ascent.ceil() as i32;
+    let ascent = p.font.as_scaled(p.scale).ascent().ceil() as i32;
     let text_height_i = text_height as i32;
     let area_y_i = p.area_y as i32;
     let pad_top_i = pad_top as i32;
@@ -266,76 +279,71 @@ fn render_text_on_canvas(canvas: &mut RgbaImage, p: &TextDrawParams) -> Result<(
                 if dx * dx + dy * dy > r * r {
                     continue;
                 }
-                for glyph in glyphs.iter() {
-                    if let Some(bbox) = glyph.pixel_bounding_box() {
-                        glyph.draw(|gx, gy, v| {
-                            let px = x as i32 + gx as i32 + bbox.min.x + dx;
-                            let py = y_base + gy as i32 + bbox.min.y + dy;
-                            if px >= 0 && py >= 0 {
-                                let px = px as u32;
-                                let py = py as u32;
-                                if let Some(pixel) = get_pixel_mut_checked(canvas, px, py) {
-                                    let alpha = (v * 255.0) as u8;
-                                    if alpha > 0 {
-                                        let inv_alpha = 255 - alpha;
-                                        pixel[0] = ((p.stroke_color[0] as u16 * alpha as u16
-                                            + pixel[0] as u16 * inv_alpha as u16)
-                                            / 255)
-                                            as u8;
-                                        pixel[1] = ((p.stroke_color[1] as u16 * alpha as u16
-                                            + pixel[1] as u16 * inv_alpha as u16)
-                                            / 255)
-                                            as u8;
-                                        pixel[2] = ((p.stroke_color[2] as u16 * alpha as u16
-                                            + pixel[2] as u16 * inv_alpha as u16)
-                                            / 255)
-                                            as u8;
-                                    }
+                for glyph in outlined.iter() {
+                    let bbox = glyph.px_bounds();
+                    glyph.draw(|gx, gy, v| {
+                        let px = x as i32 + gx as i32 + bbox.min.x as i32 + dx;
+                        let py = y_base + gy as i32 + bbox.min.y as i32 + dy;
+                        if px >= 0 && py >= 0 {
+                            let px = px as u32;
+                            let py = py as u32;
+                            if let Some(pixel) = get_pixel_mut_checked(canvas, px, py) {
+                                let alpha = (v * 255.0) as u8;
+                                if alpha > 0 {
+                                    let inv_alpha = 255 - alpha;
+                                    pixel[0] = ((p.stroke_color[0] as u16 * alpha as u16
+                                        + pixel[0] as u16 * inv_alpha as u16)
+                                        / 255) as u8;
+                                    pixel[1] = ((p.stroke_color[1] as u16 * alpha as u16
+                                        + pixel[1] as u16 * inv_alpha as u16)
+                                        / 255) as u8;
+                                    pixel[2] = ((p.stroke_color[2] as u16 * alpha as u16
+                                        + pixel[2] as u16 * inv_alpha as u16)
+                                        / 255) as u8;
                                 }
                             }
-                        });
-                    }
+                        }
+                    });
                 }
             }
         }
     }
 
     // Fill pass
-    for glyph in glyphs.iter() {
-        if let Some(bbox) = glyph.pixel_bounding_box() {
-            glyph.draw(|gx, gy, v| {
-                let px = x as i32 + gx as i32 + bbox.min.x;
-                let py = y_base + gy as i32 + bbox.min.y;
-                if px >= 0 && py >= 0 {
-                    let px = px as u32;
-                    let py = py as u32;
-                    if let Some(pixel) = get_pixel_mut_checked(canvas, px, py) {
-                        let alpha = (v * 255.0) as u8;
-                        if alpha > 0 {
-                            let inv_alpha = 255 - alpha;
-                            pixel[0] = ((p.color[0] as u16 * alpha as u16
-                                + pixel[0] as u16 * inv_alpha as u16)
-                                / 255) as u8;
-                            pixel[1] = ((p.color[1] as u16 * alpha as u16
-                                + pixel[1] as u16 * inv_alpha as u16)
-                                / 255) as u8;
-                            pixel[2] = ((p.color[2] as u16 * alpha as u16
-                                + pixel[2] as u16 * inv_alpha as u16)
-                                / 255) as u8;
-                        }
+    for glyph in outlined.iter() {
+        let bbox = glyph.px_bounds();
+        glyph.draw(|gx, gy, v| {
+            let px = x as i32 + gx as i32 + bbox.min.x as i32;
+            let py = y_base + gy as i32 + bbox.min.y as i32;
+            if px >= 0 && py >= 0 {
+                let px = px as u32;
+                let py = py as u32;
+                if let Some(pixel) = get_pixel_mut_checked(canvas, px, py) {
+                    let alpha = (v * 255.0) as u8;
+                    if alpha > 0 {
+                        let inv_alpha = 255 - alpha;
+                        pixel[0] = ((p.color[0] as u16 * alpha as u16
+                            + pixel[0] as u16 * inv_alpha as u16)
+                            / 255) as u8;
+                        pixel[1] = ((p.color[1] as u16 * alpha as u16
+                            + pixel[1] as u16 * inv_alpha as u16)
+                            / 255) as u8;
+                        pixel[2] = ((p.color[2] as u16 * alpha as u16
+                            + pixel[2] as u16 * inv_alpha as u16)
+                            / 255) as u8;
                     }
                 }
-            });
-        }
+            }
+        });
     }
 
     Ok(())
 }
 
 struct AddBackgroundParams<'a> {
-    font: &'a Font<'a>,
+    font: &'a FontRef<'a>,
     text: &'a str,
-    scale: Scale,
+    scale: PxScale,
     position: TimestampPosition,
     color: TimestampColor,
     img_width: u32,
@@ -347,22 +355,12 @@ struct AddBackgroundParams<'a> {
 }
 
 fn add_text_background(canvas: &mut RgbaImage, p: &AddBackgroundParams) -> Result<()> {
-    let v_metrics = p.font.v_metrics(p.scale);
-    let glyphs: Vec<PositionedGlyph> = p
-        .font
-        .layout(p.text, p.scale, Point { x: 0.0, y: 0.0 })
-        .collect();
+    let (glyphs, width) = layout_line(p.font, p.scale, p.text);
     if glyphs.is_empty() {
         return Ok(());
     }
-    let text_width = glyphs
-        .iter()
-        .rev()
-        .map(|g| g.position().x + g.unpositioned().h_metrics().advance_width)
-        .next()
-        .unwrap_or(0.0)
-        .ceil() as u32;
-    let text_height = (v_metrics.ascent - v_metrics.descent).ceil() as u32;
+    let text_width = width.ceil() as u32;
+    let text_height = line_height(p.font, p.scale).ceil() as u32;
     let (x, y) = calculate_text_position(&LayoutArea {
         position: p.position,
         text_width,
@@ -395,9 +393,9 @@ fn add_text_background(canvas: &mut RgbaImage, p: &AddBackgroundParams) -> Resul
 
 struct BannerRenderParams<'a> {
     image: DynamicImage,
-    font: &'a Font<'a>,
+    font: &'a FontRef<'a>,
     text: &'a str,
-    scale: Scale,
+    scale: PxScale,
     position: TimestampPosition,
     color: TimestampColor,
     timestamp_config: &'a Timestamp,
@@ -515,9 +513,9 @@ fn render_banner_timestamp(p: BannerRenderParams) -> Result<DynamicImage> {
 
 struct OverlayRenderParams<'a> {
     image: DynamicImage,
-    font: &'a Font<'a>,
+    font: &'a FontRef<'a>,
     text: &'a str,
-    scale: Scale,
+    scale: PxScale,
     position: TimestampPosition,
     color: TimestampColor,
     overscan: Option<&'a Overscan>,
@@ -624,10 +622,11 @@ pub fn render_timestamp(
     let local_dt: chrono::DateTime<chrono::Local> = dt.into();
     let fmt = timestamp_config.format.as_deref().unwrap_or("%Y-%m-%d");
     let date_str = local_dt.format(fmt).to_string();
-    let font = Font::try_from_bytes(DEFAULT_FONT_DATA).context("failed to parse embedded font")?;
+    let font =
+        FontRef::try_from_slice(DEFAULT_FONT_DATA).context("failed to parse embedded font")?;
 
     let font_size = timestamp_config.font_size.unwrap_or(24.0);
-    let scale = Scale::uniform(font_size);
+    let scale = PxScale::from(font_size);
     let position = timestamp_config.position.unwrap_or_default();
     let color = timestamp_config.color.unwrap_or_default();
 
@@ -654,5 +653,64 @@ pub fn render_timestamp(
             overscan,
             timestamp_config,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{TimestampColor, TimestampPosition};
+
+    /// Bounding box (min_x, min_y, max_x, max_y) and count of pixels touched by
+    /// white text rendered at the top-left of a black image.
+    fn render_footprint(font_size: f32) -> ((u32, u32, u32, u32), usize) {
+        let img = DynamicImage::ImageRgba8(RgbaImage::from_pixel(240, 80, Rgba([0, 0, 0, 255])));
+        let cfg = Timestamp {
+            enabled: true,
+            position: Some(TimestampPosition::TopLeft),
+            font_size: Some(font_size),
+            color: Some(TimestampColor::TransparentWhiteText),
+            full_width_banner: false,
+            banner_height: None,
+            padding_horizontal: Some(10),
+            padding_vertical: Some(10),
+            stroke_enabled: false,
+            stroke_width: None,
+            stroke_color: None,
+            format: Some("%Y-%m-%d".into()),
+        };
+        let dt = chrono::DateTime::from_timestamp(1_721_390_400, 0).unwrap(); // 2024-07-19 12:00 UTC
+        let out = render_timestamp(img, &cfg, None, Some(dt), None)
+            .unwrap()
+            .to_rgba8();
+        let (mut min_x, mut min_y, mut max_x, mut max_y, mut count) = (u32::MAX, u32::MAX, 0, 0, 0);
+        for (x, y, p) in out.enumerate_pixels() {
+            if p[0] > 0 {
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+                count += 1;
+            }
+        }
+        ((min_x, min_y, max_x, max_y), count)
+    }
+
+    #[test]
+    fn layout_metrics_match_previous_renderer() {
+        let font = FontRef::try_from_slice(DEFAULT_FONT_DATA).unwrap();
+        let scale = PxScale::from(24.0);
+        let (glyphs, width) = layout_line(&font, scale, "2024-07-19");
+        assert_eq!(glyphs.len(), 10);
+        // Values produced by the previous rusttype-based layout of the same font.
+        assert!((width - 119.8188).abs() < 0.01, "width {width}");
+        assert!((line_height(&font, scale) - 24.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn renders_text_in_expected_area() {
+        // Pinned against output from the previous rusttype-based renderer, which
+        // was pixel-identical to the current one when migrating to ab_glyph.
+        assert_eq!(render_footprint(24.0), ((11, 14, 128, 30), 813));
     }
 }

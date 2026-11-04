@@ -43,7 +43,7 @@ rust-embed = { version = "=8.13.0", optional = true, features = [
 	"include-exclude",
 ] }
 mime = "=0.3.17"
-rusttype = "=0.9.3"
+ab_glyph = "=0.2.32"
 chrono = { version = "=0.4.45", features = ["serde"] }
 chrono-tz = "=0.10.4"
 
